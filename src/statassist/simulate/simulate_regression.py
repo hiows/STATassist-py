@@ -1,49 +1,136 @@
-"""Simulate regression data with known coefficients."""
+"""Simulate regression data with known coefficients (R simulate_regression.R)."""
 
 from __future__ import annotations
+
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from statassist.simulate.make_block_cor import make_block_cor
-from statassist.utils.validate import sa_check_count, sa_check_range, sa_preserve_seed
+from statassist.utils.rng_r import get_rng, sa_r_seed
+from statassist.utils.simulate_utils import (
+    sa_sim_add_intercept,
+    sa_sim_split_args,
+    sa_sim_supervised_design,
+)
+from statassist.utils.validate import sa_check_scalar_num
+
+_MISSING = object()
 
 
 def simulate_regression(
-    n_obs: int = 200,
-    n_pred: int = 10,
-    beta: list[float] | None = None,
-    intercept: float = 1.0,
-    sigma: float = 1.0,
+    n_samples: int | object = _MISSING,
+    n_pred: int | object = _MISSING,
+    n_pos: int | object = _MISSING,
+    n_neg: int | object = _MISSING,
+    beta: list[float] | np.ndarray | None = None,
+    beta_range: tuple[float, float] = (0.5, 2),
+    intercept: float = 0,
+    value_mean: float | list[float] = 0,
+    value_sd: float | list[float] = 1,
+    noise_sd: float = 3,
     cor_mat: np.ndarray | None = None,
+    n_factor_pred: int = 1,
+    factor_lv: list[str] | None = None,
+    n_constant_pred: int = 0,
+    p_missing: float = 0,
+    n_per_subject: list[int] | None = None,
+    subject_sd: float = 1,
+    subject_share: float = 0.5,
+    pred_prefix: str = "x",
     seed: float | None = None,
-) -> dict:
-    n_obs = sa_check_count(n_obs, "n_obs", 10)
-    n_pred = sa_check_count(n_pred, "n_pred", 1)
-    sa_check_range((sigma, sigma * 2), "sigma", 0)
+) -> dict[str, Any]:
+    explicit = {
+        name
+        for name, val in (("n_pred", n_pred), ("n_pos", n_pos), ("n_neg", n_neg))
+        if val is not _MISSING
+    }
+    use_default_n = n_samples is _MISSING
+    if n_samples is _MISSING:
+        n_samples = 200
+    if n_pred is _MISSING:
+        n_pred = 8
+    if n_pos is _MISSING:
+        n_pos = round(0.25 * int(n_pred))
+    if n_neg is _MISSING:
+        n_neg = round(0.25 * int(n_pred))
 
-    if beta is None:
-        beta = [2.0] + [0.0] * (n_pred - 1)
-    beta = np.asarray(beta, dtype=float)
-    if beta.size != n_pred:
-        raise ValueError("`beta` length must equal `n_pred`.")
+    sa_check_scalar_num(intercept, "intercept")
+    sa_check_scalar_num(noise_sd, "noise_sd", 0)
+    if factor_lv is None:
+        factor_lv = ["low", "mid", "high"]
 
-    if cor_mat is None:
-        cor_mat = np.eye(n_pred)
-    if cor_mat.shape != (n_pred, n_pred):
-        raise ValueError("`cor_mat` must be n_pred by n_pred.")
+    with sa_r_seed(seed):
+        rng = get_rng()
+        design = sa_sim_supervised_design(
+            int(n_samples),
+            int(n_pred),
+            None if beta is None else np.asarray(beta, dtype=float),
+            int(n_pos),
+            int(n_neg),
+            beta_range,
+            value_mean,
+            value_sd,
+            cor_mat,
+            n_factor_pred,
+            factor_lv,
+            n_constant_pred,
+            p_missing,
+            n_per_subject,
+            subject_sd,
+            subject_share,
+            pred_prefix,
+            explicit,
+            use_default_n,
+        )
 
-    with sa_preserve_seed(seed):
-        preds = [f"x_{i+1}" for i in range(n_pred)]
-        x = np.random.multivariate_normal(np.zeros(n_pred), cor_mat, size=n_obs)
-        y = intercept + x @ beta + np.random.normal(0, sigma, n_obs)
-        data = pd.DataFrame(x, columns=preds)
-        data["y"] = y
+        eta = intercept + design["eta"]
+        noise = rng.rnorm(design["n_samples"], 0, noise_sd)
 
-    truth = pd.DataFrame({"predictors": preds, "beta": beta})
+        data = pd.DataFrame({"y": eta + noise})
+        for col in design["x"].columns:
+            data[col] = design["x"][col].to_numpy()
+        if design["subject"] is not None:
+            data["subject"] = design["subject"]
+
+        signal_var = float(np.var(design["eta"] - design["subject_offset"], ddof=1))
+        subject_var = (
+            0.0
+            if design["sizes"] is None
+            else float(np.var(design["subject_offset"], ddof=1))
+        )
+
     return {
-        "args": {"data": data, "outcome": "y", "predictors": preds},
-        "truth": truth,
-        "truth_term": truth.copy(),
-        "split_args": {"data": data, "outcome": "y", "test_frac": 0.3, "seed": seed},
+        "args": {
+            "data": data,
+            "outcome": "y",
+            "predictors": design["predictors"],
+        },
+        "split_args": sa_sim_split_args(data, design, stratify_outcome=False),
+        "truth": design["truth"],
+        "truth_term": sa_sim_add_intercept(design["truth_term"], intercept),
+        "truth_model": {
+            "intercept": intercept,
+            "noise_sd": noise_sd,
+            "signal_var": signal_var,
+            "subject_var": subject_var,
+            "r_squared": signal_var / (signal_var + subject_var + noise_sd**2),
+            "n_samples": design["n_samples"],
+            "n_subject": (
+                np.nan if design["sizes"] is None else len(design["sizes"])
+            ),
+            "subject_sd": np.nan if design["sizes"] is None else subject_sd,
+        },
+        "truth_row": pd.DataFrame(
+            {
+                "subject": (
+                    design["subject"]
+                    if design["subject"] is not None
+                    else [None] * design["n_samples"]
+                ),
+                "subject_offset": design["subject_offset"],
+                "eta": eta,
+                "noise": noise,
+            }
+        ),
     }

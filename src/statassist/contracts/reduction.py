@@ -6,6 +6,8 @@ from typing import Any
 
 import pandas as pd
 
+from statassist.contracts.base import _sa_result
+from statassist.contracts.repr import repr_sa_reduction
 from statassist.utils.metadata import sa_metadata
 
 REDUCTION_ANALYSES = ("pca", "tsne", "umap")
@@ -48,7 +50,7 @@ def sa_new_reduction(
             f"internal error: `loadings` has {len(loadings)} row(s) for {n_vars} variable(s)."
         )
 
-    result: dict[str, Any] = {
+    payload: dict[str, Any] = {
         "analysis": analysis,
         "points": list(points),
         "design": design,
@@ -60,7 +62,7 @@ def sa_new_reduction(
         "__class__": ("sa_reduction", "sa_result"),
     }
     if variance is not None:
-        result["variance"] = variance.reset_index(drop=True)
+        payload["variance"] = variance.reset_index(drop=True)
     if loadings is not None:
-        result["loadings"] = loadings.reset_index(drop=True)
-    return result
+        payload["loadings"] = loadings.reset_index(drop=True)
+    return _sa_result(payload, repr_sa_reduction)

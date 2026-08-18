@@ -6,6 +6,8 @@ from typing import Any
 
 import pandas as pd
 
+from statassist.contracts.base import _sa_result
+from statassist.contracts.repr import repr_sa_performance
 from statassist.utils.metadata import sa_metadata
 
 PREDICTION_TABLE_COLUMNS = ("model", "row", "observed", "predicted")
@@ -136,16 +138,18 @@ def sa_new_performance(
                 f"{', '.join(sorted(unknown))}."
             )
 
-    result: dict[str, Any] = {
-        "analysis": analysis,
-        "models": list(models),
-        "design": design,
-        "parameters": parameters,
-        "predictions": predictions.reset_index(drop=True),
-        "metrics": metrics.reset_index(drop=True),
-        "comparisons": comparisons,
-        "curves": curves,
-        "metadata": sa_metadata(),
-        "__class__": ("sa_performance", "sa_result"),
-    }
-    return result
+    return _sa_result(
+        {
+            "analysis": analysis,
+            "models": list(models),
+            "design": design,
+            "parameters": parameters,
+            "predictions": predictions.reset_index(drop=True),
+            "metrics": metrics.reset_index(drop=True),
+            "comparisons": comparisons,
+            "curves": curves,
+            "metadata": sa_metadata(),
+            "__class__": ("sa_performance", "sa_result"),
+        },
+        repr_sa_performance,
+    )

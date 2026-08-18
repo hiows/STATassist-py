@@ -261,9 +261,8 @@ def main() -> None:
     print("=== 2. three or more groups ===")
     sim_n = sa.simulate_multiple_groups(
         n_feats=10,
-        n_per_group=50,
-        n_groups=4,
-        n_signal=6,
+        n_control=50,
+        n_treat=[50, 50, 50],
         group_lv=["control", "treat_1", "treat_2", "treat_3"],
         seed=2026,
     )
@@ -317,7 +316,7 @@ def main() -> None:
     )
     beta = [0.0, 1.2, 0.0, 0.0, 0.54, 0.0, -1.79, -0.88]
     sim_reg = sa.simulate_regression(
-        n_obs=200, n_pred=8, beta=beta, cor_mat=cor_mat, seed=2026
+        n_samples=200, n_pred=8, beta=beta, cor_mat=cor_mat, seed=2026
     )
     reg_args = sim_reg["args"]
     reg_split = sa.split_data(
@@ -329,7 +328,7 @@ def main() -> None:
     reg_train = reg_split["datasets"][0]["train_data"]
     reg_test = reg_split["datasets"][0]["test_data"]
 
-    sim_cls = sa.simulate_classification(n_obs=200, n_pred=8, n_signal=4, seed=2026)
+    sim_cls = sa.simulate_classification(n_samples=200, n_pred=8, n_pos=2, n_neg=2, seed=2026)
     cls_args = sim_cls["args"]
     cls_split = sa.split_data(
         data=cls_args["data"],
@@ -637,7 +636,7 @@ def main() -> None:
         ],
     )
     red_data = sa.simulate_regression(
-        n_obs=200, n_pred=8, cor_mat=red_cor, beta=[0.0] * 8, intercept=0, seed=2026
+        n_samples=200, n_pred=8, cor_mat=red_cor, beta=[0.0] * 8, intercept=0, seed=2026
     )["args"]["data"]
     red_feats = [f"x_{i}" for i in range(1, 9)]
 
@@ -713,11 +712,10 @@ def main() -> None:
     fact_feats = [f"prot_{i}" for i in range(1, 101)]
     sim_fact = sa.simulate_factorial_groups(
         seed=2026,
-        n_obs_per_cell=20,
-        feats=fact_feats,
+        n_per_cell=20,
+        n_feats=100,
+        feat_prefix="prot",
         factor_lv={"treatment": ["control", "A", "B", "C"], "sex": ["male", "female"]},
-        main_effects={"treatment": 1.0, "sex": 0.5},
-        interaction=1.2,
     )
     fact_args = sim_fact["args"]
     fact_comp = sa.compare_factorial_groups(

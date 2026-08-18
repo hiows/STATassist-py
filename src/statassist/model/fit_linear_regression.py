@@ -9,10 +9,10 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from sklearn.base import BaseEstimator, RegressorMixin
-from sklearn.model_selection import GridSearchCV
 
 from statassist.contracts.model import sa_new_model
 from statassist.utils.model_utils import (
+    run_cv_scores,
     sa_coef_table,
     sa_design_lv,
     sa_resolve_model_input,
@@ -61,25 +61,19 @@ def fit_linear_regression(
     ctrl = sa_train_control(cv, cv_method, n_fold, n_repeat, input_["n_used"])
     x_df = input_["x"]
 
+    def fold_predict(train: np.ndarray, test: np.ndarray) -> np.ndarray:
+        return _LMWrapper().fit(x_df.iloc[train], y[train]).predict(x_df.iloc[test])
+
     with sa_preserve_seed(seed):
-        wrapper = _LMWrapper()
-        if ctrl["cv"] is not None:
-            search = GridSearchCV(wrapper, param_grid={}, cv=ctrl["cv"], scoring="neg_root_mean_squared_error")
-            search.fit(x_df, y)
-            fit_obj = search.best_estimator_
-            perf = pd.DataFrame(
-                {
-                    "RMSE": [-search.best_score_],
-                    "RMSESD": [np.std(-search.cv_results_["mean_test_score"], ddof=1)],
-                    "Rsquared": [np.nan],
-                    "MAE": [np.nan],
-                }
-            )
-            resampling = None
-        else:
-            fit_obj = wrapper.fit(x_df, y)
-            perf = None
-            resampling = None
+        perf, resampling = run_cv_scores(fold_predict, y, ctrl, seed=seed)
+        # caret refits the winner on every row, and with one candidate that is
+        # the only fit the result reports coefficients from.
+        fit_obj = _LMWrapper().fit(x_df, y)
+
+    if perf is not None:
+        # caret's `lm` grid is the single question of whether to keep the
+        # intercept, and it names that column in the performance table.
+        perf.insert(0, "intercept", True)
 
     model = fit_obj.model_
     summ = model.summary2()
@@ -91,6 +85,11 @@ def fit_linear_regression(
     coefs = sa_coef_table(model, interval, df=model.df_resid)
 
     f_stat = model.fvalue
+    # R's AIC.lm counts the residual variance among the parameters and
+    # statsmodels does not, which is a constant 2 on the AIC and log(n) on the
+    # BIC. Counted R's way so that the two agree.
+    n_params = int(model.df_model) + 2
+    log_lik = float(model.llf)
     fit_stats = {
         "r_squared": float(model.rsquared),
         "adj_r_squared": float(model.rsquared_adj),
@@ -99,8 +98,8 @@ def fit_linear_regression(
         "df1": float(model.df_model),
         "df2": float(model.df_resid),
         "pval": float(model.f_pvalue) if model.f_pvalue is not None else np.nan,
-        "aic": float(model.aic),
-        "bic": float(model.bic),
+        "aic": -2 * log_lik + 2 * n_params,
+        "bic": -2 * log_lik + np.log(int(model.nobs)) * n_params,
     }
 
     design = {

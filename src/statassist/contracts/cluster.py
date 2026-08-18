@@ -6,6 +6,8 @@ from typing import Any
 
 import pandas as pd
 
+from statassist.contracts.base import _sa_result
+from statassist.contracts.repr import repr_sa_cluster
 from statassist.utils.metadata import sa_metadata
 
 CLUSTER_ANALYSES = ("hclust", "kmeans", "dbscan", "snn")
@@ -63,15 +65,18 @@ def sa_new_cluster(
     for key in ("package", "method", "label", "overridden"):
         if engine.get(key) is None:
             raise ValueError(f"internal error: `engine` is missing `{key}`.")
-    return {
-        "analysis": analysis,
-        "points": list(points),
-        "design": design,
-        "parameters": parameters,
-        "assignments": assignments.reset_index(drop=True),
-        "clusters": clusters.reset_index(drop=True),
-        "engine": engine,
-        "fit": fit,
-        "metadata": sa_metadata(),
-        "__class__": ("sa_cluster", "sa_result"),
-    }
+    return _sa_result(
+        {
+            "analysis": analysis,
+            "points": list(points),
+            "design": design,
+            "parameters": parameters,
+            "assignments": assignments.reset_index(drop=True),
+            "clusters": clusters.reset_index(drop=True),
+            "engine": engine,
+            "fit": fit,
+            "metadata": sa_metadata(),
+            "__class__": ("sa_cluster", "sa_result"),
+        },
+        repr_sa_cluster,
+    )

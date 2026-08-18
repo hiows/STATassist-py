@@ -1,11 +1,12 @@
-"""Simulate a two-group experiment with known truth."""
+"""Simulate a two-group experiment with known truth (R simulate_two_groups.R)."""
 
 from __future__ import annotations
 
 import numpy as np
 import pandas as pd
 
-from statassist.utils.validate import sa_check_count, sa_check_range, sa_preserve_seed
+from statassist.utils.rng_r import get_rng, sa_r_seed
+from statassist.utils.validate import sa_check_count, sa_check_range
 
 
 def simulate_two_groups(
@@ -21,40 +22,46 @@ def simulate_two_groups(
     group_lv: list[str] | None = None,
     seed: float | None = None,
 ) -> dict:
-    group_lv = group_lv or ["control", "case"]
+    group_lv = list(group_lv or ["control", "case"])
     n_feats = sa_check_count(n_feats, "n_feats", 1)
     n_case = sa_check_count(n_case, "n_case", 2)
     n_control = sa_check_count(n_control, "n_control", 2)
     n_up = sa_check_count(n_up, "n_up")
     n_down = sa_check_count(n_down, "n_down")
     if n_up + n_down > n_feats:
-        raise ValueError("`n_up` + `n_down` exceeds `n_feats`.")
+        raise ValueError(
+            f"`n_up` + `n_down` is {n_up + n_down}, which is more features "
+            f"than the {n_feats} that `n_feats` asks for."
+        )
+    if len(group_lv) != 2 or group_lv[0] == group_lv[1]:
+        raise ValueError("`group_lv` must be two distinct non-missing group labels.")
     sa_check_range(expr_range, "expr_range")
     sa_check_range(case_sd, "case_sd", 0)
     sa_check_range(control_sd, "control_sd", 0)
     sa_check_range(deg_log2fc, "deg_log2fc", 0)
 
-    with sa_preserve_seed(seed):
+    with sa_r_seed(seed):
+        rng = get_rng()
         feats = [f"gene_{i}" for i in range(1, n_feats + 1)]
-        baseline = np.random.uniform(expr_range[0], expr_range[1], n_feats)
-        sd_case = np.random.uniform(case_sd[0], case_sd[1], n_feats)
-        sd_control = np.random.uniform(control_sd[0], control_sd[1], n_feats)
+        baseline = rng.runif(n_feats, expr_range[0], expr_range[1])
+        sd_case = rng.runif(n_feats, case_sd[0], case_sd[1])
+        sd_control = rng.runif(n_feats, control_sd[0], control_sd[1])
         direction = np.array(["none"] * n_feats, dtype=object)
         delta = np.zeros(n_feats)
         if n_up + n_down > 0:
-            picked = np.random.choice(n_feats, n_up + n_down, replace=False)
+            picked = rng.sample_int(n_feats, n_up + n_down) - 1
             up_idx = picked[:n_up]
             down_idx = picked[n_up:]
             direction[up_idx] = "up"
             direction[down_idx] = "down"
-            delta[up_idx] = np.random.uniform(deg_log2fc[0], deg_log2fc[1], n_up)
-            delta[down_idx] = -np.random.uniform(deg_log2fc[0], deg_log2fc[1], n_down)
+            delta[up_idx] = rng.runif(n_up, deg_log2fc[0], deg_log2fc[1])
+            delta[down_idx] = -rng.runif(n_down, deg_log2fc[0], deg_log2fc[1])
 
-        control_values = np.column_stack(
-            [np.random.normal(baseline[i], sd_control[i], n_control) for i in range(n_feats)]
-        )
         case_values = np.column_stack(
-            [np.random.normal(baseline[i] + delta[i], sd_case[i], n_case) for i in range(n_feats)]
+            [rng.rnorm(n_case, baseline[i] + delta[i], sd_case[i]) for i in range(n_feats)]
+        )
+        control_values = np.column_stack(
+            [rng.rnorm(n_control, baseline[i], sd_control[i]) for i in range(n_feats)]
         )
         values = np.vstack([control_values, case_values])
         data = pd.DataFrame(values, columns=feats)

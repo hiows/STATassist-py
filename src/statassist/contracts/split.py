@@ -6,6 +6,8 @@ from typing import Any
 
 import pandas as pd
 
+from statassist.contracts.base import _sa_result
+from statassist.contracts.repr import repr_sa_split
 from statassist.utils.metadata import sa_metadata
 
 
@@ -21,12 +23,15 @@ def sa_new_split(
         raise ValueError("internal error: `full_data` must be a DataFrame.")
     if not datasets:
         raise ValueError("internal error: `datasets` must be non-empty.")
-    return {
-        "full_data": full_data,
-        "datasets": datasets,
-        "train_idx": train_idx,
-        "design": design,
-        "parameters": parameters,
-        "metadata": sa_metadata(),
-        "__class__": ("sa_split", "sa_result"),
-    }
+    return _sa_result(
+        {
+            "full_data": full_data,
+            "datasets": datasets,
+            "train_idx": train_idx,
+            "design": design,
+            "parameters": parameters,
+            "metadata": sa_metadata(),
+            "__class__": ("sa_split", "sa_result"),
+        },
+        repr_sa_split,
+    )

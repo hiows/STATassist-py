@@ -25,7 +25,7 @@ py -m pytest -v
 Run only today's folder:
 
 ```bash
-py -m pytest -v test/cursor_test/2026_08_17
+py -m pytest -v ../test/cursor_test/2026_08_17
 ```
 
 ## Convention

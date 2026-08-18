@@ -64,7 +64,7 @@ def draw_forest_plot(
     p_col = "pval_adj" if use_adjusted else "pval"
 
     if feats is not None:
-        sa_check_feat_names(feats)
+        feats = sa_check_feat_names(feats)
         tbl = tbl.loc[tbl["features"].isin(feats)].copy()
         tbl = tbl.set_index("features").loc[feats].reset_index()
         if posthoc is not None and len(posthoc):

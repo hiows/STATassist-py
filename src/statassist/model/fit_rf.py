@@ -13,7 +13,9 @@ from sklearn.model_selection import GridSearchCV
 
 from statassist.contracts.model import sa_new_model
 from statassist.utils.model_utils import (
+    sa_bind_folds,
     sa_design_lv,
+    sa_forest_frame,
     sa_outcome_levels,
     sa_resolve_model_input,
     sa_rf_grid,
@@ -119,7 +121,7 @@ def fit_rf(
         cv,
     )
     ctrl = sa_train_control(cv, cv_method, n_fold, n_repeat, input_["n_used"])
-    x_df = input_["x"]
+    x_df = sa_forest_frame(input_["x"])
 
     with sa_preserve_seed(seed):
         if classify:
@@ -140,8 +142,11 @@ def fit_rf(
             scoring = "neg_root_mean_squared_error"
 
         param_grid = {"max_features": grid["mtry"].tolist()}
-        if cv and ctrl["cv"] is not None and len(grid) > 1:
-            search = GridSearchCV(base, param_grid=param_grid, cv=ctrl["cv"], scoring=scoring)
+        folded = sa_bind_folds(
+            ctrl, np.asarray(y).astype(str) if classify else y_fit, seed
+        )
+        if cv and folded["cv"] is not None and len(grid) > 1:
+            search = GridSearchCV(base, param_grid=param_grid, cv=folded["cv"], scoring=scoring)
             search.fit(x_df, y_fit)
             model = search.best_estimator_
             perf = pd.DataFrame(search.cv_results_)

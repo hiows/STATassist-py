@@ -6,6 +6,8 @@ from typing import Any
 
 import pandas as pd
 
+from statassist.contracts.base import _sa_result
+from statassist.contracts.repr import repr_sa_model
 from statassist.utils.metadata import sa_metadata
 
 MODEL_COEF_COLUMNS = ("terms", "estimate")
@@ -60,17 +62,20 @@ def sa_new_model(
     if resampling is not None and not isinstance(resampling, pd.DataFrame):
         raise ValueError("internal error: `resampling` must be a DataFrame or None.")
 
-    return {
-        "analysis": analysis,
-        "terms": list(terms),
-        "design": design,
-        "parameters": parameters,
-        "coefficients": coefficients.reset_index(drop=True),
-        "fit_stats": fit_stats,
-        "performance": performance,
-        "resampling": resampling,
-        "engine": engine,
-        "fit": fit,
-        "metadata": sa_metadata(),
-        "__class__": ("sa_model", "sa_result"),
-    }
+    return _sa_result(
+        {
+            "analysis": analysis,
+            "terms": list(terms),
+            "design": design,
+            "parameters": parameters,
+            "coefficients": coefficients.reset_index(drop=True),
+            "fit_stats": fit_stats,
+            "performance": performance,
+            "resampling": resampling,
+            "engine": engine,
+            "fit": fit,
+            "metadata": sa_metadata(),
+            "__class__": ("sa_model", "sa_result"),
+        },
+        repr_sa_model,
+    )

@@ -15,6 +15,7 @@ from sklearn.svm import SVC, SVR
 
 from statassist.contracts.model import sa_new_model
 from statassist.utils.model_utils import (
+    sa_bind_folds,
     sa_design_lv,
     sa_design_matrix,
     sa_outcome_levels,
@@ -122,8 +123,11 @@ def fit_svm(
             {"svm__C": row.C, "svm__gamma": 1 / (2 * row.sigma**2)}
             for _, row in grid.iterrows()
         ]
-        if cv and ctrl["cv"] is not None and len(grid) > 1:
-            search = GridSearchCV(base, param_grid=param_grid, cv=ctrl["cv"], scoring=scoring)
+        folded = sa_bind_folds(
+            ctrl, np.asarray(y).astype(str) if classify else y_fit, seed
+        )
+        if cv and folded["cv"] is not None and len(grid) > 1:
+            search = GridSearchCV(base, param_grid=param_grid, cv=folded["cv"], scoring=scoring)
             search.fit(x, y_fit)
             model = search.best_estimator_
             perf = pd.DataFrame(search.cv_results_)

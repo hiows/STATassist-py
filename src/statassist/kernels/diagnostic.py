@@ -63,8 +63,9 @@ def sa_bartlett(samples: dict[str, np.ndarray] | list[np.ndarray]) -> dict[str, 
     if isinstance(samples, dict):
         samples = list(samples.values())
     res = stats.bartlett(*samples)
+    df = getattr(res, "df", len(samples) - 1)
     return {
         "bartlett_stat": float(res.statistic),
-        "bartlett_df": float(res.df),
+        "bartlett_df": float(df),
         "bartlett_pval": float(res.pvalue),
     }

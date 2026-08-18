@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import re
 import warnings
+from collections.abc import Callable
 from contextlib import contextmanager
 from typing import Any
 
@@ -10,13 +12,10 @@ import numpy as np
 import pandas as pd
 import statsmodels.api as sm
 from patsy import build_design_matrices, dmatrix
-from sklearn.model_selection import (
-    KFold,
-    LeaveOneOut,
-    RepeatedKFold,
-    cross_validate,
-)
+from sklearn.model_selection import KFold, LeaveOneOut, RepeatedKFold
 
+from statassist.utils.caret_resample import RFoldSplitter, sa_caret_resample_index
+from statassist.utils.glmnet_r import sa_post_resample, sa_post_resample_class
 from statassist.utils.validate import (
     sa_check_count,
     sa_check_flag,
@@ -25,6 +24,24 @@ from statassist.utils.validate import (
     sa_preserve_seed,
     sa_resolve_row_vector,
 )
+
+
+def sa_forest_frame(x: pd.DataFrame) -> pd.DataFrame:
+    """Predictors in the form a scikit-learn forest will accept.
+
+    `randomForest()` splits a factor on a subset of its levels, and no
+    scikit-learn tree does; a factor arrives here as its level codes, which is
+    the closest a numeric splitter gets. Ordering levels that have no order is
+    what that costs, and is why a forest's importances are not compared against
+    R's number for number.
+    """
+    out = x.copy()
+    for nm in out.columns:
+        if isinstance(out[nm].dtype, pd.CategoricalDtype):
+            out[nm] = out[nm].cat.codes.astype(float)
+        elif pd.api.types.is_object_dtype(out[nm]):
+            out[nm] = pd.Categorical(out[nm]).codes.astype(float)
+    return out
 
 
 def sa_design_lv(predictor_lv: dict[str, list[str]]) -> dict[str, Any]:
@@ -77,9 +94,12 @@ def sa_resolve_model_input(
     unsupported = [
         c
         for c in predictors
-        if not (np.issubdtype(x[c].dtype, np.number) or pd.api.types.is_bool_dtype(x[c]))
-        and not pd.api.types.is_categorical_dtype(x[c])
-        and not pd.api.types.is_object_dtype(x[c])
+        if not (
+            isinstance(x[c].dtype, pd.CategoricalDtype)
+            or pd.api.types.is_object_dtype(x[c])
+            or pd.api.types.is_bool_dtype(x[c])
+            or pd.api.types.is_numeric_dtype(x[c])
+        )
     ]
     if unsupported:
         raise ValueError(
@@ -99,7 +119,13 @@ def sa_resolve_model_input(
 
     predictor_lv: dict[str, list[str]] = {}
     for nm in predictors:
-        if pd.api.types.is_object_dtype(x[nm]) or pd.api.types.is_categorical_dtype(x[nm]):
+        if isinstance(x[nm].dtype, pd.CategoricalDtype):
+            # A column that already carries a level order keeps it, the way an R
+            # factor does. Sorting it again would move the reference level, and
+            # with it every coefficient the level is measured against.
+            x[nm] = x[nm].cat.remove_unused_categories()
+            predictor_lv[nm] = x[nm].cat.categories.astype(str).tolist()
+        elif pd.api.types.is_object_dtype(x[nm]):
             x[nm] = pd.Categorical(x[nm])
             predictor_lv[nm] = x[nm].cat.categories.astype(str).tolist()
         elif pd.api.types.is_bool_dtype(x[nm]):
@@ -144,7 +170,7 @@ def sa_outcome_levels(
     model: str = "a logistic regression",
 ) -> pd.Categorical:
     y = pd.Series(y)
-    if isinstance(y.dtype, pd.CategoricalDtype) or pd.api.types.is_categorical_dtype(y):
+    if isinstance(y.dtype, pd.CategoricalDtype):
         y = y.astype(str)
     elif pd.api.types.is_bool_dtype(y):
         y = y.astype(str)
@@ -197,6 +223,20 @@ def sa_outcome_levels(
     return pd.Categorical(y, categories=outcome_lv, ordered=True)
 
 
+def sa_r_term_name(name: str) -> str:
+    """A patsy column name written the way `model.matrix()` writes it.
+
+    The quoting that lets a column called `x 1` through the formula is patsy's
+    and belongs to the formula rather than to the term, and a factor level
+    arrives as `[T.male]` where R appends a bare `male`. Names are what a
+    coefficient table is read by, so they are R's.
+    """
+    if name in ("const", "Intercept"):
+        return "(Intercept)"
+    out = re.sub(r"Q\('([^']*)'\)", r"\1", name)
+    return re.sub(r"\[T\.([^\]]*)\]", r"\1", out)
+
+
 def sa_design_matrix(
     x: pd.DataFrame,
     xlev: dict[str, list[str]] | None = None,
@@ -210,6 +250,7 @@ def sa_design_matrix(
                 x[col] = pd.Categorical(x[col].astype(str), categories=levels)
     mat = dmatrix(formula, data=x, return_type="dataframe")
     mat = mat.drop(columns=["Intercept"], errors="ignore")
+    mat.columns = [sa_r_term_name(c) for c in mat.columns]
     if want is not None:
         absent = set(want) - set(mat.columns)
         if absent:
@@ -287,8 +328,7 @@ def sa_coef_table(
 ) -> pd.DataFrame:
     estimate = model.params
     summ = model.summary2().tables[1]
-    terms = list(estimate.index)
-    at = [terms.index(t) if t in terms else None for t in terms]
+    terms = [sa_r_term_name(t) for t in estimate.index]
     stderr = summ["Std.Err."].to_numpy()
     statistic = summ["t"].to_numpy() if "t" in summ.columns else summ["z"].to_numpy()
     pval = summ["P>|t|"].to_numpy() if "P>|t|" in summ.columns else summ["P>|z|"].to_numpy()
@@ -323,6 +363,7 @@ def sa_resample_scheme(
     if cv_method == "repeated_kfold":
         return {
             "cv": RepeatedKFold(n_splits=n_fold, n_repeats=n_repeat, random_state=None),
+            "method": "repeatedcv",
             "cv_method": cv_method,
             "n_fold": n_fold,
             "n_repeat": n_repeat,
@@ -330,6 +371,7 @@ def sa_resample_scheme(
     if cv_method == "kfold":
         return {
             "cv": KFold(n_splits=n_fold, shuffle=True),
+            "method": "cv",
             "cv_method": cv_method,
             "n_fold": n_fold,
             "n_repeat": None,
@@ -337,6 +379,7 @@ def sa_resample_scheme(
     if cv_method == "loocv":
         return {
             "cv": LeaveOneOut(),
+            "method": "LOOCV",
             "cv_method": cv_method,
             "n_fold": None,
             "n_repeat": None,
@@ -352,48 +395,97 @@ def sa_train_control(
     n_obs: int,
 ) -> dict[str, Any]:
     sa_check_flag(cv, "cv")
+    sa_check_count(n_fold, "n_fold", 2)
+    sa_check_count(n_repeat, "n_repeat", 1)
     if not cv:
-        return {"cv": None, "cv_method": None, "n_fold": None, "n_repeat": None}
-    scheme = sa_resample_scheme(cv_method, n_fold, n_repeat, n_obs)
-    return scheme
+        return {
+            "cv": None,
+            "method": "none",
+            "cv_method": None,
+            "n_fold": None,
+            "n_repeat": None,
+        }
+    return sa_resample_scheme(cv_method, n_fold, n_repeat, n_obs)
+
+
+def sa_resample_sets(
+    y: np.ndarray,
+    ctrl: dict[str, Any],
+    seed: int | None,
+) -> tuple[list[np.ndarray], list[str]]:
+    """The training rows of each resample, and what caret calls them.
+
+    With a seed these are the folds an R session would have drawn; without one
+    there is nothing to line up with and the scikit-learn splitter is used.
+    """
+    if seed is None:
+        train_sets = [np.asarray(tr) for tr, _ in ctrl["cv"].split(np.zeros(len(y)), y)]
+        return train_sets, [f"Resample{i + 1}" for i in range(len(train_sets))]
+    return sa_caret_resample_index(
+        y, ctrl["method"], ctrl["n_fold"] or len(y), ctrl["n_repeat"] or 1, seed
+    )
+
+
+def sa_bind_folds(
+    ctrl: dict[str, Any],
+    strata: np.ndarray,
+    seed: int | None,
+) -> dict[str, Any]:
+    """Swap the scikit-learn splitter for the fold index caret would have drawn.
+
+    For the engines that still tune through `GridSearchCV`, this is as far as
+    parity goes: the folds become the R ones, while the numbers scored on them
+    stay whatever the Python engine produces.
+    """
+    if ctrl.get("cv") is None or seed is None:
+        return ctrl
+    train_sets, _ = sa_resample_sets(strata, ctrl, seed)
+    return {**ctrl, "cv": RFoldSplitter(train_sets, len(strata))}
 
 
 def run_cv_scores(
-    estimator: Any,
-    x: pd.DataFrame | np.ndarray,
+    fit_predict: Callable[[np.ndarray, np.ndarray], np.ndarray],
     y: np.ndarray,
-    cv: Any,
+    ctrl: dict[str, Any],
     *,
-    scoring: dict[str, str],
+    classify: bool = False,
+    strata: np.ndarray | None = None,
     seed: int | None = None,
 ) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
-    if cv is None:
+    """caret's resampled performance for a model with one tuning candidate.
+
+    `fit_predict` is handed the training and test row indices and returns the
+    predictions for the test rows, which is the only part that differs between
+    one engine and the next. `strata` is what the folds are balanced on, which
+    for a classification is the class labels rather than the zero/one coding the
+    engine is fitted against: caret sees a factor there and stratifies on its
+    levels, and a numeric column would be cut into quantiles instead.
+    """
+    if ctrl.get("cv") is None:
         return None, None
-    with sa_preserve_seed(seed):
-        scores = cross_validate(
-            estimator,
-            x,
-            y,
-            cv=cv,
-            scoring=scoring,
-            return_train_score=False,
-            error_score="raise",
+
+    train_sets, names = sa_resample_sets(y if strata is None else strata, ctrl, seed)
+    summarise = sa_post_resample_class if classify else sa_post_resample
+    metric_names = ["Accuracy", "Kappa"] if classify else ["RMSE", "Rsquared", "MAE"]
+
+    all_rows = np.arange(len(y))
+    rows = []
+    for train in train_sets:
+        test = np.setdiff1d(all_rows, train)
+        rows.append(summarise(fit_predict(train, test), y[test]))
+
+    resampling = pd.DataFrame(rows)[metric_names]
+    resampling["Resample"] = names
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        perf = pd.DataFrame(
+            {m: [np.nanmean(resampling[m].to_numpy(dtype=float))] for m in metric_names}
+            | {
+                f"{m}SD": [np.nanstd(resampling[m].to_numpy(dtype=float), ddof=1)]
+                for m in metric_names
+            }
         )
-    metrics = {k.replace("test_", ""): [np.mean(scores[k])] for k in scores if k.startswith("test_")}
-    for k in list(metrics.keys()):
-        sd_key = f"{k}SD"
-        raw = scores.get(f"test_{k}")
-        if raw is not None:
-            metrics[sd_key] = [np.std(raw, ddof=1)]
-    perf = pd.DataFrame(metrics)
-    resample_rows = []
-    for i in range(len(scores["test_score"] if "test_score" in scores else scores[list(scores)[0]])):
-        row = {"Resample": i + 1}
-        for k, v in scores.items():
-            if k.startswith("test_"):
-                row[k.replace("test_", "")] = v[i]
-        resample_rows.append(row)
-    resampling = pd.DataFrame(resample_rows) if resample_rows else None
     return perf, resampling
 
 

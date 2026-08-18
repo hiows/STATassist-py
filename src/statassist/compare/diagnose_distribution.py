@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from statassist.compare.screen_outliers import screen_outliers
+from statassist.contracts.repr import repr_sa_diagnosis
 from statassist.kernels.diagnostic import sa_bartlett, sa_ks_normal, sa_levene, sa_shapiro
 from statassist.utils.describe import sa_kurtosis, sa_skewness
 from statassist.utils.metadata import sa_metadata
@@ -23,7 +24,7 @@ class sa_diagnosis(sa_result):
     pass
 
 
-@dataclass
+@dataclass(repr=False)
 class DiagnosisResult:
     analysis: str
     features: list[str]
@@ -34,6 +35,9 @@ class DiagnosisResult:
     outliers: pd.DataFrame
     summary: pd.DataFrame
     metadata: dict[str, str] = field(default_factory=sa_metadata)
+
+    def __repr__(self) -> str:
+        return repr_sa_diagnosis(self)
 
 
 def sa_normality_table(

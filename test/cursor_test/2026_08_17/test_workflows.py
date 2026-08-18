@@ -97,7 +97,9 @@ def test_estimate_significance(two_group_sim):
 
 
 def test_compare_multiple_groups():
-    sim = sa.simulate_multiple_groups(n_feats=8, n_groups=3, n_per_group=15, seed=1)
+    sim = sa.simulate_multiple_groups(
+        n_feats=8, n_control=15, n_treat=[15, 15], seed=1
+    )
     res = sa.compare_multiple_groups(**sim["args"], diagnose=False)
     assert res.analysis == "multi_group_comparison"
     assert len(res.tests) >= 1
@@ -121,7 +123,7 @@ def test_volcano_and_forest_plot(two_group_sim, matplotlib_use_agg):
 
 
 def test_split_and_fit():
-    sim = sa.simulate_regression(n_pred=6, seed=1)
+    sim = sa.simulate_regression(n_pred=6, n_factor_pred=0, seed=1)
     sp = sa.split_data(sim["args"]["data"], p_train=0.75, seed=1)
     train = sp["datasets"][0]["train_data"]
     fit = sa.fit_linear_regression(
@@ -135,7 +137,7 @@ def test_split_and_fit():
 
 
 def test_rfe_and_stepwise():
-    sim = sa.simulate_regression(n_pred=6, seed=1)
+    sim = sa.simulate_regression(n_pred=6, n_factor_pred=0, seed=1)
     sp = sa.split_data(sim["args"]["data"], p_train=0.75, seed=1)
     train = sp["datasets"][0]["train_data"]
     sel = sa.perform_stepwise(

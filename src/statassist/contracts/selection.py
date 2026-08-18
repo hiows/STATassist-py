@@ -6,6 +6,8 @@ from typing import Any
 
 import pandas as pd
 
+from statassist.contracts.base import _sa_result
+from statassist.contracts.repr import repr_sa_selection
 from statassist.utils.metadata import sa_metadata
 
 SELECTION_ANALYSES = ("rfe", "stepwise")
@@ -69,17 +71,20 @@ def sa_new_selection(
     if resampling is not None and not isinstance(resampling, pd.DataFrame):
         raise ValueError("internal error: `resampling` must be a DataFrame or None.")
 
-    return {
-        "analysis": analysis,
-        "candidates": list(candidates),
-        "design": design,
-        "parameters": parameters,
-        "selected": list(selected),
-        "ranking": ranking.reset_index(drop=True),
-        "profile": profile.reset_index(drop=True),
-        "resampling": resampling,
-        "engine": engine,
-        "fit": fit,
-        "metadata": sa_metadata(),
-        "__class__": ("sa_selection", "sa_result"),
-    }
+    return _sa_result(
+        {
+            "analysis": analysis,
+            "candidates": list(candidates),
+            "design": design,
+            "parameters": parameters,
+            "selected": list(selected),
+            "ranking": ranking.reset_index(drop=True),
+            "profile": profile.reset_index(drop=True),
+            "resampling": resampling,
+            "engine": engine,
+            "fit": fit,
+            "metadata": sa_metadata(),
+            "__class__": ("sa_selection", "sa_result"),
+        },
+        repr_sa_selection,
+    )

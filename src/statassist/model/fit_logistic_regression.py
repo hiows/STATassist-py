@@ -8,10 +8,9 @@ import statsmodels.api as sm
 from scipy import stats
 from sklearn.base import BaseEstimator, ClassifierMixin
 from sklearn.metrics import accuracy_score
-from sklearn.model_selection import GridSearchCV
-
 from statassist.contracts.model import sa_new_model
 from statassist.utils.model_utils import (
+    run_cv_scores,
     sa_coef_table,
     sa_design_lv,
     sa_outcome_levels,
@@ -64,20 +63,22 @@ def fit_logistic_regression(
     ctrl = sa_train_control(cv, cv_method, n_fold, n_repeat, input_["n_used"])
     x_df = input_["x"]
 
+    def fold_predict(train: np.ndarray, test: np.ndarray) -> np.ndarray:
+        return _GLMWrapper().fit(x_df.iloc[train], y_bin[train]).predict(x_df.iloc[test])
+
     with sa_preserve_seed(seed):
-        wrapper = _GLMWrapper()
-        if ctrl["cv"] is not None:
-            search = GridSearchCV(
-                wrapper, param_grid={}, cv=ctrl["cv"], scoring="accuracy"
-            )
-            search.fit(x_df, y_bin)
-            fit_obj = search.best_estimator_
-            perf = pd.DataFrame({"Accuracy": [search.best_score_]})
-            resampling = None
-        else:
-            fit_obj = wrapper.fit(x_df, y_bin)
-            perf = None
-            resampling = None
+        perf, resampling = run_cv_scores(
+            fold_predict,
+            y_bin,
+            ctrl,
+            classify=True,
+            strata=np.asarray(y).astype(str),
+            seed=seed,
+        )
+        fit_obj = _GLMWrapper().fit(x_df, y_bin)
+
+    if perf is not None:
+        perf.insert(0, "parameter", "none")
 
     model = fit_obj.model_
     interval = sa_wald_interval(

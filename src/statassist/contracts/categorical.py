@@ -7,6 +7,7 @@ from typing import Any
 
 import pandas as pd
 
+from statassist.contracts.repr import repr_sa_categorical, repr_sa_categorical_significance
 from statassist.utils.metadata import sa_metadata
 
 
@@ -43,7 +44,11 @@ class sa_categorical(sa_result):
     pass
 
 
-@dataclass
+class sa_categorical_significance(sa_result):
+    pass
+
+
+@dataclass(repr=False)
 class CategoricalResult:
     analysis: str
     variables: list[str]
@@ -55,6 +60,9 @@ class CategoricalResult:
     association: pd.DataFrame
     diagnostics: dict[str, Any] | None = None
     metadata: dict[str, str] = field(default_factory=sa_metadata)
+
+    def __repr__(self) -> str:
+        return repr_sa_categorical(self)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -69,6 +77,37 @@ class CategoricalResult:
             "diagnostics": self.diagnostics,
             "metadata": dict(self.metadata),
         }
+
+
+@dataclass(repr=False)
+class CategoricalSignificanceResult:
+    analysis_type: str
+    significance: pd.DataFrame
+
+    def __repr__(self) -> str:
+        return repr_sa_categorical_significance(self.significance)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "analysis_type": self.analysis_type,
+            "significance": self.significance.copy(),
+        }
+
+
+def sa_new_categorical_significance(
+    analysis_type: str,
+    significance: pd.DataFrame,
+) -> CategoricalSignificanceResult:
+    obj = CategoricalSignificanceResult(
+        analysis_type=analysis_type,
+        significance=significance,
+    )
+    obj.__class__ = type(
+        "CategoricalSignificanceResult",
+        (sa_categorical_significance, CategoricalSignificanceResult),
+        {},
+    )
+    return obj
 
 
 def sa_new_categorical(

@@ -10,6 +10,7 @@ import pandas as pd
 from scipy import stats
 
 from statassist.contracts.comparison import ComparisonResult, sa_new_comparison, sa_two_group
+from statassist.kernels.diagnostic import sa_bartlett, sa_levene
 from statassist.kernels.robust import sa_brunner_munzel, sa_yuen_paired
 from statassist.utils.foldchange import sa_fold_change, sa_resolve_fc_mean
 from statassist.utils.validate import (
@@ -147,15 +148,10 @@ def _diagnose_samples(
             "n_groups": len(group_lv),
         }
         if all(v.size >= 2 for v in vals):
-            lev = stats.levene(*vals, center="median")
-            var_row["levene_stat"] = float(lev.statistic)
-            var_row["levene_df1"] = float(lev.df[0])
-            var_row["levene_df2"] = float(lev.df[1])
-            var_row["levene_pval"] = float(lev.pvalue)
-            bart = stats.bartlett(*vals)
-            var_row["bartlett_stat"] = float(bart.statistic)
-            var_row["bartlett_df"] = float(bart.df)
-            var_row["bartlett_pval"] = float(bart.pvalue)
+            lev = sa_levene(vals, center="median")
+            var_row.update(lev)
+            bart = sa_bartlett(vals)
+            var_row.update(bart)
         else:
             for col in (
                 "levene_stat",

@@ -35,7 +35,9 @@ _METHOD_TO_STATSMODELS: dict[str, str] = {
 }
 
 
-def sa_check_feat_names(feats: Sequence[str]) -> list[str]:
+def sa_check_feat_names(feats: Sequence[str] | str) -> list[str]:
+    if isinstance(feats, str):
+        feats = [feats]
     if not isinstance(feats, (list, tuple, np.ndarray, pd.Index)):
         raise ValueError(
             "`feats` must be a non-empty character vector of feature names."

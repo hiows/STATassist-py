@@ -30,7 +30,7 @@ def spot_run() -> None:
     assert len(sig2.significance) == 30
 
     sim_multi = sa.simulate_multiple_groups(
-        n_per_group=50, n_groups=4, n_signal=6, seed=2026
+        n_feats=100, n_control=50, n_treat=[50, 50, 50], seed=2026
     )
     multi = sa.compare_multiple_groups(**sim_multi["args"], diagnose=False)
     assert multi.analysis == "multi_group_comparison"

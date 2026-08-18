@@ -8,6 +8,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from statassist.contracts.repr import repr_sa_significance
 from statassist.utils.validate import p_adjust, sa_check_pvalues, sa_check_scalar_num
 
 
@@ -19,12 +20,15 @@ class sa_significance(sa_result):
     """Marker class for significance verdict results."""
 
 
-@dataclass
+@dataclass(repr=False)
 class SignificanceResult:
     """Structured significance verdict matching the R sa_significance contract."""
 
     analysis_type: str
     significance: pd.DataFrame | dict[str, pd.DataFrame]
+
+    def __repr__(self) -> str:
+        return repr_sa_significance(self)
 
     def to_dict(self) -> dict[str, Any]:
         sig = self.significance

@@ -7,6 +7,7 @@ from typing import Any
 
 import pandas as pd
 
+from statassist.contracts.repr import repr_sa_comparison
 from statassist.utils.metadata import sa_metadata
 
 
@@ -25,6 +26,11 @@ def sa_posthoc_stat_columns() -> list[str]:
         for c in sa_posthoc_table_columns()
         if c not in ("features", "contrast", "group1", "group2")
     ]
+
+
+def sa_cell_table_columns() -> list[str]:
+    """Column names every cell table of a factorial result must carry."""
+    return ["features", "cell", "n", "mean", "sd", "se"]
 
 
 def sa_posthoc_table_columns() -> list[str]:
@@ -87,7 +93,7 @@ class sa_factorial(sa_comparison):
     """Marker class for factorial comparison results."""
 
 
-@dataclass
+@dataclass(repr=False)
 class ComparisonResult:
     """Structured comparison result matching the R sa_comparison contract."""
 
@@ -104,6 +110,10 @@ class ComparisonResult:
     cells: pd.DataFrame | None = None
     posthoc: dict[str, pd.DataFrame] | None = None
     pairwise: dict[str, dict[str, pd.DataFrame]] | None = None
+
+    def __repr__(self) -> str:
+        return repr_sa_comparison(self)
+
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
             "analysis": self.analysis,

@@ -85,9 +85,13 @@ def compare_one_sample(
     sa_check_p_adjust(p_adjust, "p_adjust")
     sa_check_flag(diagnose, "diagnose")
 
+    if isinstance(feats, str):
+        feats = [feats]
+    else:
+        feats = list(feats)
+
     split = sa_split_for_screening(data, feats, group=None, group_lv=None)
     data = split["data"]
-    feats = list(feats)
 
     samples = {
         f: data[f].to_numpy()[np.isfinite(data[f].to_numpy())] for f in feats
