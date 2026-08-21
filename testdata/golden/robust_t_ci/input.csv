@@ -1,0 +1,6 @@
+"est","se","df","alternative","conf_level","lower_bound","upper_bound"
+1.25,0.4,9,"two.sided",0.95,-Inf,Inf
+1.25,0.4,9,"greater",0.95,-Inf,Inf
+1.25,0.4,9,"less",0.95,-Inf,Inf
+0.62,0.11,15.7,"greater",0.9,0,1
+0.62,0.11,15.7,"less",0.9,0,1

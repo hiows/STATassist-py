@@ -1,0 +1,11 @@
+"answer","grade","flag","coded"
+"y","low",TRUE,1
+"n","high",FALSE,0
+"y","mid",TRUE,1
+"y","low",TRUE,0
+,"high",FALSE,1
+"n","mid",FALSE,1
+"y","low",TRUE,0
+"n","high",TRUE,0
+"y","mid",FALSE,1
+"maybe","low",TRUE,0

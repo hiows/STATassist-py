@@ -1,0 +1,1 @@
+{"outlier":{"grubbs_stat":3.46653275228892,"grubbs_pval":0.000231155436599027,"grubbs_index":7},"clean":{"grubbs_stat":2.85583966066825,"grubbs_pval":0.0629619414398175,"grubbs_index":12},"tiny":{"grubbs_stat":1.14577662799104,"grubbs_pval":0.237596143113671,"grubbs_index":3}}

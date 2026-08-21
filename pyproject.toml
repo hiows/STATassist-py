@@ -1,0 +1,74 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "statassist"
+version = "0.1.0.dev0"
+description = "Python port of R STATassist - standardised statistical tables and workflows"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.11"
+authors = [{ name = "Wonseok Oh" }]
+keywords = ["statistics", "bioinformatics", "machine-learning"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+# Only what the code here actually imports. statsmodels, scikit-learn and
+# matplotlib are added by the phases that first need them. scipy arrived with
+# the simulators: `expit` and `brentq` are what solve the intercept that hits a
+# requested event rate.
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.1",
+    "mypy>=1.7",
+    "pandas-stubs",
+]
+
+[project.urls]
+Homepage = "https://github.com/hiows/STATassist"
+Repository = "https://github.com/hiows/STATassist"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/statassist"]
+
+[tool.hatch.build.targets.editable]
+packages = ["src/statassist"]
+
+[tool.pytest.ini_options]
+# `src` is in here for the docstring examples. R CMD check runs the ones in the
+# R sources, so the port would otherwise be the only side where a documented
+# example is free to stop working.
+testpaths = ["tests", "src"]
+pythonpath = ["src"]
+addopts = ["--doctest-modules"]
+doctest_optionflags = ["ELLIPSIS", "NORMALIZE_WHITESPACE"]
+filterwarnings = ["error::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src/statassist"]
+warn_return_any = true
+warn_unused_ignores = true
+ignore_missing_imports = true

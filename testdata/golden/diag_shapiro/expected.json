@@ -1,0 +1,1 @@
+{"all":{"shapiro_stat":0.942934593191233,"shapiro_pval":0.109126660468607},"small":{"shapiro_stat":0.883978713698506,"shapiro_pval":0.205476801736367},"tiny":{"shapiro_stat":0.848931287090712,"shapiro_pval":0.237596143113666},"outlier":{"shapiro_stat":0.807467434421237,"shapiro_pval":0.00111887028692589},"tied":{"shapiro_stat":0.951930736646913,"shapiro_pval":0.456104503060636}}
