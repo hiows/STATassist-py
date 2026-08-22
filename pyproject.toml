@@ -20,11 +20,14 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering",
 ]
-# Only what the code here actually imports. statsmodels, scikit-learn and
-# matplotlib are added by the phases that first need them. scipy arrived with
-# the simulators: `expit` and `brentq` are what solve the intercept that hits a
-# requested event rate.
+# Only what the code here actually imports. statsmodels and scikit-learn are
+# added by the phases that first need them. scipy arrived with the simulators:
+# `expit` and `brentq` are what solve the intercept that hits a requested event
+# rate. matplotlib arrived with the `draw_*` functions, which are the renderer
+# rather than a wrapper around one, so it is a hard dependency of the package
+# and not an extra.
 dependencies = [
+    "matplotlib>=3.7",
     "numpy>=1.24",
     "pandas>=2.0",
     "scipy>=1.11",

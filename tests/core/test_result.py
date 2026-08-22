@@ -6,9 +6,12 @@ import pandas as pd
 import pytest
 
 from statassist.core import (
+    SIGNIFICANCE_COLUMNS,
     SaComparison,
+    SaSignificance,
     metadata,
     new_comparison,
+    new_significance,
     pick_test,
     posthoc_table_columns,
 )
@@ -129,6 +132,108 @@ class TestSaResultAccess:
         out = res.to_dict()
         out["analysis"] = "changed"
         assert res["analysis"] == "two_group_comparison"
+
+
+def _verdict(**overrides: object) -> pd.DataFrame:
+    table = pd.DataFrame(
+        {
+            "features": FEATS,
+            "log2fc": [1.5, -0.2],
+            "pvalue": [0.001, 0.40],
+            "adj_pvalue": [0.002, 0.40],
+            "is_signif": pd.array([True, False], dtype="boolean"),
+        }
+    )
+    table.attrs = {
+        "analysis": "two_group_comparison",
+        "group_lv": ["control", "case"],
+        "test": "t_test",
+        "test_label": "Welch t-test",
+        "adj_type": "BH",
+        "log2fc_cutoff": 1.0,
+        "pval_cutoff": 0.05,
+    }
+    for name, value in overrides.items():
+        table[name] = value
+    return table
+
+
+class TestNewSignificance:
+    def test_the_two_slots_are_the_ones_r_has(self) -> None:
+        res = new_significance("two_group_comparison", _verdict())
+        assert list(res) == ["analysis_type", "significance"]
+        assert isinstance(res, SaSignificance)
+        assert res.analysis_type == "two_group_comparison"
+
+    def test_a_single_table_is_kept_as_a_table(self) -> None:
+        """Not wrapped in a one-element mapping: the two readings differ."""
+        table = _verdict()
+        res = new_significance("two_group_comparison", table)
+        assert isinstance(res["significance"], pd.DataFrame)
+        assert list(res["significance"].columns) == list(SIGNIFICANCE_COLUMNS)
+
+    def test_a_mapping_is_kept_keyed_and_ordered(self) -> None:
+        contrasts = {"case_vs_control": _verdict(), "case_vs_other": _verdict()}
+        res = new_significance("multi_group_comparison", contrasts)
+        assert list(res["significance"]) == ["case_vs_control", "case_vs_other"]
+
+    def test_the_cutoffs_travel_with_the_table(self) -> None:
+        """`draw_volcano_plot()` reads them back, so a plotted guide cannot drift."""
+        res = new_significance("two_group_comparison", _verdict())
+        attrs = res["significance"].attrs
+        assert attrs["log2fc_cutoff"] == 1.0
+        assert attrs["pval_cutoff"] == 0.05
+        assert attrs["test"] == "t_test"
+
+    def test_a_table_missing_a_contract_column_is_a_contract_breach(self) -> None:
+        stripped = _verdict().drop(columns=["adj_pvalue"])
+        with pytest.raises(SaInternalError, match="contract column\\(s\\): adj_pvalue"):
+            new_significance("two_group_comparison", stripped)
+
+    def test_every_table_of_a_mapping_is_checked(self) -> None:
+        stripped = _verdict().drop(columns=["is_signif"])
+        with pytest.raises(SaInternalError, match="contract column\\(s\\): is_signif"):
+            new_significance("multi_group_comparison", {"a_vs_b": _verdict(), "a_vs_c": stripped})
+
+    def test_an_empty_mapping_is_a_contract_breach(self) -> None:
+        with pytest.raises(SaInternalError, match="at least one table"):
+            new_significance("multi_group_comparison", {})
+
+    def test_a_scenario_column_may_follow_the_contract_ones(self) -> None:
+        table = _verdict(extreme_level="high")
+        res = new_significance("multi_group_comparison", table)
+        assert list(res["significance"].columns)[-1] == "extreme_level"
+
+
+class TestSaSignificanceRepr:
+    def test_it_reports_the_rule_and_the_count(self) -> None:
+        text = repr(new_significance("two_group_comparison", _verdict()))
+        assert "two_group_comparison" in text
+        assert "t_test" in text
+        assert "abs(log2fc) >= 1, adj_pvalue <= 0.05  (BH)" in text
+        assert "1 of 2 significant" in text
+
+    def test_an_undecided_verdict_is_counted_apart(self) -> None:
+        """A feature with no defined log2fc is neither significant nor not."""
+        table = _verdict()
+        table.loc[1, "is_signif"] = pd.NA
+        text = repr(new_significance("two_group_comparison", table))
+        assert "1 of 2 significant  (1 undecided)" in text
+
+    def test_a_family_wise_test_reports_no_adjustment(self) -> None:
+        table = _verdict()
+        table.attrs["adj_type"] = None
+        assert "(none)" in repr(new_significance("multi_group_comparison", table))
+
+    def test_a_mapping_names_the_axis_it_runs_along(self) -> None:
+        by_contrast = {"case_vs_control": _verdict()}
+        assert "one table per contrast" in repr(
+            new_significance("multi_group_comparison", by_contrast)
+        )
+
+        by_term = {"dose": _verdict()}
+        by_term["dose"].attrs["term"] = "dose"
+        assert "one table per term" in repr(new_significance("factorial_comparison", by_term))
 
 
 class TestPickTest:

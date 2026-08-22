@@ -1,0 +1,9 @@
+"n_success","n","p","alternative","conf_level"
+14,18,0.5,"two.sided",0.95
+9,18,0.5,"two.sided",0.95
+18,18,0.5,"two.sided",0.95
+1,18,0.05,"two.sided",0.95
+5,10,0.5,"greater",0.95
+5,10,0.3,"less",0.9
+5,10,0.8,"two.sided",0.99
+1,2,0.5,"two.sided",0.95

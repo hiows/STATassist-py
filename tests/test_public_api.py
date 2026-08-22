@@ -18,7 +18,15 @@ import statassist
 #: functions.
 PUBLIC = (
     "center_by_control",
+    "compare_multiple_groups",
+    "compare_one_sample",
+    "compare_two_groups",
     "diagnose_distribution",
+    "draw_butterfly_hist",
+    "draw_forest_plot",
+    "draw_heatmap",
+    "draw_volcano_plot",
+    "estimate_significance",
     "make_block_cor",
     "screen_outliers",
     "simulate_categorical_groups",
@@ -46,7 +54,17 @@ class TestExports:
 
     @pytest.mark.parametrize(
         "module",
-        ["core", "diagnose", "kernel", "simulate", "summarize", "transform"],
+        [
+            "compare",
+            "core",
+            "diagnose",
+            "estimate",
+            "kernel",
+            "plot",
+            "simulate",
+            "summarize",
+            "transform",
+        ],
     )
     def test_each_subpackage_exports_only_names_it_holds(self, module):
         import importlib

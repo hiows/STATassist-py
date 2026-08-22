@@ -64,13 +64,17 @@ from .factorial import (
 from .padjust import P_ADJUST_METHODS, p_adjust
 from .random import SaRandom
 from .result import (
+    REPR_ALPHA,
+    SIGNIFICANCE_COLUMNS,
     SaComparison,
     SaDiagnosis,
     SaResult,
+    SaSignificance,
     SaSimulation,
     SaSplit,
     metadata,
     new_comparison,
+    new_significance,
     pick_test,
 )
 from .rstats import MAD_CONSTANT, mad
@@ -111,6 +115,8 @@ __all__ = [
     "MAX_CATEGORY_LEVELS",
     "P_ADJUST_METHODS",
     "REPEATED_CELL_MIN",
+    "REPR_ALPHA",
+    "SIGNIFICANCE_COLUMNS",
     "UNSET",
     "Alignment",
     "CategoricalInput",
@@ -123,6 +129,7 @@ __all__ = [
     "SaInternalError",
     "SaRandom",
     "SaResult",
+    "SaSignificance",
     "SaSimulation",
     "SaSplit",
     "SaValueError",
@@ -176,6 +183,7 @@ __all__ = [
     "metadata",
     "na_row",
     "new_comparison",
+    "new_significance",
     "p_adjust",
     "pair_by_id",
     "pair_by_order",

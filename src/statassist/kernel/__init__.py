@@ -42,7 +42,7 @@ from .categorical import (
     odds_ratio,
     phi,
 )
-from .cluster import NOISE_LABEL, silhouette
+from .cluster import DIST_METHODS, NOISE_LABEL, cluster_dist, silhouette
 from .diagnostic import (
     bartlett,
     flag_outliers,
@@ -99,14 +99,27 @@ from .robust import (
     winsorized_normal_var,
     yuen_paired,
 )
+from .wilcox import (
+    EXACT_MAX_N,
+    TOL_ROOT,
+    psignrank,
+    pwilcox,
+    qsignrank,
+    qwilcox,
+    rank_sum,
+    signed_rank,
+)
 
 __all__ = [
     "ASSOC_COLUMNS",
+    "DIST_METHODS",
+    "EXACT_MAX_N",
     "MCNEMAR_EXACT_MAX_DISCORDANT",
     "NOISE_LABEL",
     "QR_RANK_TOL",
     "SS_TYPES",
     "TERM_COLUMNS",
+    "TOL_ROOT",
     "CellMatrix",
     "FactorialFit",
     "FactorialPlan",
@@ -123,6 +136,7 @@ __all__ = [
     "brunner_munzel",
     "check_response",
     "chisq",
+    "cluster_dist",
     "cochran_q",
     "conover",
     "contr_sum",
@@ -153,9 +167,15 @@ __all__ = [
     "phi",
     "placement_values",
     "posthoc_columns",
+    "psignrank",
+    "pwilcox",
+    "qsignrank",
+    "qwilcox",
+    "rank_sum",
     "rm_anova",
     "roc_points",
     "shapiro",
+    "signed_rank",
     "silhouette",
     "sphericity",
     "split_groups",

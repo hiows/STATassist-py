@@ -35,15 +35,27 @@ from .contracts import (
 from .errors import SaInternalError, SaValueError
 
 __all__ = [
+    "REPR_ALPHA",
+    "SIGNIFICANCE_COLUMNS",
     "SaComparison",
     "SaDiagnosis",
     "SaResult",
+    "SaSignificance",
     "SaSimulation",
     "SaSplit",
     "metadata",
     "new_comparison",
+    "new_significance",
     "pick_test",
 ]
+
+#: Columns of a verdict table, in order.
+#:
+#: A multi-group omnibus table carries ``extreme_level`` and a factorial one
+#: ``extreme_cell`` after these, naming the level or cell whose centre produced
+#: ``log2fc``. Those are per-scenario additions rather than part of the contract
+#: every consumer may rely on, which is why they are not listed here.
+SIGNIFICANCE_COLUMNS = ("features", "log2fc", "pvalue", "adj_pvalue", "is_signif")
 
 
 def metadata() -> dict[str, str]:
@@ -237,8 +249,125 @@ def _fmt(value: float) -> str:
     return f"{value:g}"
 
 
+#: Threshold ``repr`` counts significant features at.
+#:
+#: R's ``print.sa_comparison(x, alpha = 0.05)``. Python's ``__repr__`` takes no
+#: argument, so the value R lets the caller override is fixed here; a reader who
+#: wants another threshold counts it off ``res.tests[name]`` directly.
+REPR_ALPHA = 0.05
+
+
 class SaComparison(SaResult):
     """The result of comparing groups on a set of features."""
+
+    def __repr__(self) -> str:
+        """The summary ``print.sa_comparison`` prints, not the tables.
+
+        Which tests were run and how many features each one called significant.
+        The tables are in ``res.tests``, and the pairwise stage in
+        ``res.posthoc``.
+        """
+        design = self["design"]
+        params = self["parameters"]
+        lines = [f"<{type(self).__name__}> {self['analysis']}"]
+        lines.extend(self._header(design, params))
+        lines.append(f"  features : {len(self['features'])}")
+        lines.append(
+            f"  settings : alternative = {params['alternative']}"
+            f", conf_level = {_fmt(params['conf_level'])}"
+            f", p_adjust = {params['p_adjust']}"
+        )
+
+        lines.append("")
+        lines.append("  tests")
+        lines.extend(self._test_lines())
+        if "terms" in self and self["terms"] is not None:
+            lines.append("")
+            lines.append("  terms")
+            lines.extend(self._term_lines())
+
+        if self["diagnostics"] is not None:
+            lines.append("")
+            lines.append("  $diagnostics attached")
+        unmatched = design.get("unmatched_ids") or []
+        if len(unmatched) > 0:
+            lines.append("")
+            lines.append(f"  dropped  : {len(unmatched)} unpaired id(s)")
+        if design.get("n_dropped"):
+            lines.append(f"  dropped  : {design['n_dropped']} row(s) outside `group_lv`")
+        return "\n".join(lines)
+
+    def _header(self, design: Mapping[str, Any], params: Mapping[str, Any]) -> list[str]:
+        """The line that says what was compared.
+
+        Chosen from what the design holds rather than from the analysis name: a
+        one-sample comparison has a hypothesised value where the others have
+        group levels, and a crossed one has factors where they have a flat list.
+        """
+        if design.get("factor_lv") is not None:
+            factors = design["factor_lv"]
+            shape = " x ".join(f"{name} ({len(levels)})" for name, levels in factors.items())
+            anova = str(design["anova_type"]).replace("_", "-", 1)
+            return [
+                f"  factors  : {shape}  ({len(design['group_lv'])} cells, independent)",
+                f"  anova    : {anova}, Type {params['ss_type']} sums of squares",
+            ]
+        if design.get("group_lv") is None:
+            return [f"  mu       : {_fmt(design['mu'])}"]
+        how = (
+            f"  (paired by {design['pairing']})"
+            if design.get("paired") is True
+            else "  (independent)"
+        )
+        return ["  groups   : " + " vs ".join(design["group_lv"]) + how]
+
+    def _test_lines(self) -> list[str]:
+        tests = self["tests"]
+        posthoc = self["posthoc"] if "posthoc" in self else {}
+        width = max(len(name) for name in tests)
+        lines: list[str] = []
+        for name, table in tests.items():
+            adjusted = table["pval_adj"]
+            n_signif = int((adjusted.notna() & (adjusted <= REPR_ALPHA)).sum())
+            n_failed = int(table["pval"].isna().sum())
+            failed = f"  ({n_failed} not computed)" if n_failed > 0 else ""
+            info = self["test_info"][name]
+            lines.append(
+                f"    ${name:<{width}}  {n_signif} of {len(table.index)} "
+                f"at pval_adj <= {_fmt(REPR_ALPHA)}{failed}"
+            )
+            lines.append(f"    {' ' * (width + 2)}{info['label']}")
+
+            pairs = posthoc.get(name)
+            if pairs is not None and len(pairs.index) > 0:
+                pair_adj = pairs["pval_adj"]
+                n_pairs = int((pair_adj.notna() & (pair_adj <= REPR_ALPHA)).sum())
+                lines.append(
+                    f"    {' ' * (width + 2)}post-hoc: {n_pairs} of {len(pairs.index)} "
+                    f"contrast(s) over {pairs['features'].nunique()} feature(s), "
+                    f"{info['posthoc_label']}"
+                )
+        return lines
+
+    def _term_lines(self) -> list[str]:
+        """Which part of the design a feature responds to.
+
+        The whole-model row above says that it responds to the design at all,
+        which is not the question a crossed model was fitted to answer.
+        """
+        terms = self["terms"]
+        labels = list(dict.fromkeys(str(label) for label in terms["terms"]))
+        width = max(len(label) for label in labels)
+        lines: list[str] = []
+        for label in labels:
+            rows = terms[terms["terms"] == label]
+            adjusted = rows["pval_adj"]
+            n_signif = int((adjusted.notna() & (adjusted <= REPR_ALPHA)).sum())
+            lines.append(
+                f"    {label:<{width}}  {n_signif} of {len(rows.index)} "
+                f"at pval_adj <= {_fmt(REPR_ALPHA)}"
+            )
+        return lines
 
 
 class SaTwoGroup(SaComparison):
@@ -448,6 +577,104 @@ def new_comparison(
 
     cls = SaComparison if subclass is None else _SUBCLASSES.get(subclass, SaComparison)
     return cls(slots)
+
+
+class SaSignificance(SaResult):
+    """A comparison reduced to one significance verdict per feature.
+
+    Two slots, as R has: ``analysis_type``, the ``analysis`` of the comparison
+    the verdict was read from, and ``significance``, either one verdict table or
+    a mapping of them - one per contrast or per model term.
+
+    The cutoffs, the test and the adjustment that produced a table are carried
+    in that table's ``attrs`` rather than in a slot of their own, which is where
+    ``draw_volcano_plot()`` reads them back from so that a plotted guide cannot
+    disagree with the verdict beside it. R puts them in the same place, as
+    attributes of the data.frame.
+    """
+
+    def __repr__(self) -> str:
+        """The summary ``print.sa_significance`` prints, not the table.
+
+        The rule that was applied and how many features cleared it. The table
+        itself is in ``significance``.
+        """
+        held = self["significance"]
+        # A contrast or term reading holds one table each, and every one of them
+        # was judged by the same rule, so the header is read off whichever comes
+        # first.
+        tables = {"": held} if isinstance(held, pd.DataFrame) else dict(held)
+        first = next(iter(tables.values()))
+        attrs = first.attrs
+
+        # Tukey's HSD and Games-Howell report family-wise p-values, so the
+        # pairwise stage adjusted nothing and the entry is absent rather than
+        # "none".
+        adj_used = attrs.get("adj_type") or "none"
+        lines = [
+            f"<{type(self).__name__}> {self['analysis_type']}",
+            f"  test     : {attrs.get('test')}  ({attrs.get('test_label')})",
+            f"  cutoffs  : abs(log2fc) >= {_fmt(attrs.get('log2fc_cutoff', float('nan')))}"
+            f", adj_pvalue <= {_fmt(attrs.get('pval_cutoff', float('nan')))}  ({adj_used})",
+        ]
+
+        def count(table: pd.DataFrame) -> str:
+            flags = table["is_signif"]
+            n_signif = int((flags == True).sum())  # noqa: E712 - NA must not count
+            n_undecided = int(flags.isna().sum())
+            undecided = f"  ({n_undecided} undecided)" if n_undecided > 0 else ""
+            return f"{n_signif} of {len(table.index)} significant{undecided}"
+
+        if isinstance(held, pd.DataFrame):
+            lines.append(f"  verdict  : {count(held)}")
+            return "\n".join(lines)
+
+        # Which axis the mapping runs along is a property of the tables, not of
+        # the object, since the reading is not recorded anywhere else.
+        axis = "contrast" if first.attrs.get("term") is None else "term"
+        lines.append("")
+        lines.append(f"  $significance, one table per {axis}")
+        width = max((len(name) for name in tables), default=0)
+        for name, table in tables.items():
+            lines.append(f"    {name:<{width}}  {count(table)}")
+        return "\n".join(lines)
+
+
+def new_significance(
+    analysis_type: str,
+    significance: pd.DataFrame | Mapping[str, pd.DataFrame],
+) -> SaSignificance:
+    """Wrap a verdict table in the object the user sees.
+
+    Port of ``sa_new_significance()``. The scenario name sits beside the table
+    rather than only in its attributes, since a consumer reading the verdict has
+    to know which question the ``log2fc`` column answers, and ``attrs`` is easy
+    to lose and easy to miss.
+
+    Args:
+        analysis_type: The ``analysis`` of the comparison read from.
+        significance: One verdict table, or a mapping of them keyed by contrast
+            or by model term, in the order the comparison fixes.
+    """
+    if isinstance(significance, pd.DataFrame):
+        tables = [significance]
+        held: pd.DataFrame | dict[str, pd.DataFrame] = significance
+    else:
+        held = dict(significance)
+        tables = list(held.values())
+        if not tables:
+            raise SaInternalError("internal error: `significance` must hold at least one table.")
+
+    for table in tables:
+        absent = [name for name in SIGNIFICANCE_COLUMNS if name not in table.columns]
+        if absent:
+            raise SaInternalError(
+                "internal error: a verdict table is missing contract column(s): "
+                + ", ".join(absent)
+                + "."
+            )
+
+    return SaSignificance({"analysis_type": analysis_type, "significance": held})
 
 
 def pick_test(res: Any, test: Any, arg: str) -> pd.DataFrame:

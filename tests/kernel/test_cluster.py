@@ -8,7 +8,7 @@ from golden import assert_close, load_case
 from scipy.spatial.distance import pdist, squareform
 
 from statassist.core.errors import SaValueError
-from statassist.kernel.cluster import NOISE_LABEL, silhouette
+from statassist.kernel.cluster import NOISE_LABEL, cluster_dist, silhouette
 
 
 @pytest.fixture(scope="module")
@@ -181,3 +181,61 @@ def test_the_definition_agrees_with_scikit_learn_where_the_two_overlap() -> None
         metrics.silhouette_samples(distances, labels, metric="precomputed").tolist(),
         rtol=1e-12,
     )
+
+
+class TestClusterDist:
+    """``cluster_dist()`` against :func:`scipy.spatial.distance.pdist`.
+
+    Complete data is what the two have in common, so that is where the formula is
+    settled. The gaps are where they part company, and where R's rule - measure
+    the pair on what it shares and scale the sum up to the full width - is what is
+    checked instead.
+    """
+
+    def test_complete_data_agrees_with_pdist(self) -> None:
+        points = np.random.default_rng(11).normal(size=(7, 5))
+        for method, metric in (("euclidean", "euclidean"), ("manhattan", "cityblock")):
+            assert_close(
+                cluster_dist(points, method).tolist(),
+                pdist(points, metric=metric).tolist(),
+                rtol=1e-12,
+            )
+
+    def test_correlation_is_one_minus_the_correlation(self) -> None:
+        points = np.random.default_rng(12).normal(size=(6, 8))
+        expected = 1 - np.corrcoef(points)
+        assert_close(
+            cluster_dist(points, "correlation").tolist(),
+            squareform(expected, checks=False).tolist(),
+            rtol=1e-12,
+        )
+
+    def test_a_gap_is_measured_on_what_the_pair_shares_and_scaled_up(self) -> None:
+        """R's rule: the sum over the shared columns, times p over how many."""
+        left = np.array([1.0, 2.0, np.nan, 4.0])
+        right = np.array([1.0, 4.0, 7.0, 8.0])
+        shared = np.array([0.0, 2.0, 4.0])
+        expected = np.sqrt((shared**2).sum() * 4 / 3)
+        assert_close(cluster_dist(np.vstack([left, right]), "euclidean").tolist(), [expected])
+
+    def test_a_pair_that_shares_nothing_has_no_distance(self) -> None:
+        left = np.array([1.0, 2.0, np.nan, np.nan])
+        right = np.array([np.nan, np.nan, 3.0, 4.0])
+        assert np.isnan(cluster_dist(np.vstack([left, right]), "euclidean")).all()
+
+    def test_a_row_with_no_variance_has_no_correlation(self) -> None:
+        flat = np.array([2.0, 2.0, 2.0])
+        varying = np.array([1.0, 3.0, 7.0])
+        assert np.isnan(cluster_dist(np.vstack([flat, varying]), "correlation")).all()
+
+    @pytest.mark.parametrize(
+        ("x", "method", "match"),
+        [
+            (np.zeros((3, 2)), "cosine", "`dist_method` must be one of"),
+            (np.zeros((1, 2)), "euclidean", "at least two rows"),
+            (np.zeros(3), "euclidean", "at least two rows"),
+        ],
+    )
+    def test_a_bad_argument_is_named_in_the_message(self, x, method, match) -> None:
+        with pytest.raises(SaValueError, match=match):
+            cluster_dist(x, method)

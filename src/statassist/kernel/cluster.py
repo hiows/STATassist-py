@@ -19,6 +19,7 @@ scattered back after. Writing the arithmetic out is shorter than that, and
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import numpy as np
@@ -26,7 +27,10 @@ from scipy.spatial.distance import squareform
 
 from ..core.errors import SaValueError
 
-__all__ = ["NOISE_LABEL", "silhouette"]
+__all__ = ["DIST_METHODS", "NOISE_LABEL", "cluster_dist", "silhouette"]
+
+#: The distances a clustering can be measured on, in the order they are offered.
+DIST_METHODS = ("euclidean", "correlation", "manhattan")
 
 #: The cluster label that means "not in any cluster".
 #:
@@ -57,6 +61,73 @@ def _as_distance_matrix(d: Any, n_points: int) -> np.ndarray:
             "the distance matrix must be in the order the labels are in."
         )
     return array
+
+
+def cluster_dist(x: Any, dist_method: str = "euclidean") -> np.ndarray:
+    """Distances between the rows of ``x``, in condensed form.
+
+    Port of ``sa_cluster_dist()``. ``"correlation"`` is ``1 - cor()``, which
+    measures the shape of a profile rather than how high it sits, and the other
+    two are the plain metrics :func:`stats::dist` computes.
+
+    Written out rather than handed to :func:`scipy.spatial.distance.pdist` for
+    one reason: missing values. ``pdist`` has no notion of them and returns
+    ``NaN`` for a pair with a single gap, where R measures the pair on the
+    columns it does share and scales the sum up to the full width, which is what
+    lets a heatmap cluster data with holes in it. A pair that shares no column at
+    all has no distance, and comes back ``NaN`` here as it does ``NA`` there.
+
+    Args:
+        x: Objects to measure between, in rows.
+        dist_method: One of :data:`DIST_METHODS`.
+
+    Returns:
+        The condensed lower triangle, in the layout
+        :func:`scipy.spatial.distance.squareform` reads.
+
+    Raises:
+        SaValueError: If ``dist_method`` is not one of :data:`DIST_METHODS`, or
+            ``x`` is not a two-dimensional array of at least two rows.
+    """
+    if dist_method not in DIST_METHODS:
+        raise SaValueError(
+            "`dist_method` must be one of " + ", ".join(DIST_METHODS) + f". Got {dist_method}."
+        )
+    values = np.asarray(x, dtype=float)
+    if values.ndim != 2 or values.shape[0] < 2:
+        raise SaValueError("`x` must be a matrix of at least two rows to measure between.")
+
+    n_rows, n_cols = values.shape
+    known = np.isfinite(values)
+    out = np.empty(n_rows * (n_rows - 1) // 2)
+
+    at = 0
+    for i in range(n_rows - 1):
+        for j in range(i + 1, n_rows):
+            shared = known[i] & known[j]
+            n_shared = int(shared.sum())
+            left = values[i, shared]
+            right = values[j, shared]
+            if dist_method == "correlation":
+                # A row with no variance has no correlation, which is left to the
+                # caller to notice rather than turned into an error here.
+                if n_shared < 2:
+                    out[at] = np.nan
+                elif left.std() == 0 or right.std() == 0:
+                    out[at] = np.nan
+                else:
+                    out[at] = 1.0 - float(np.corrcoef(left, right)[0, 1])
+            elif n_shared == 0:
+                out[at] = np.nan
+            elif dist_method == "euclidean":
+                total = float(np.square(left - right).sum())
+                out[at] = math.sqrt(total * n_cols / n_shared)
+            else:
+                total = float(np.abs(left - right).sum())
+                out[at] = total * n_cols / n_shared
+            at += 1
+
+    return out
 
 
 def silhouette(d: Any, cluster: Any) -> np.ndarray:

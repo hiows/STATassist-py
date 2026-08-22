@@ -375,6 +375,146 @@ write_case(
 
 
 # --------------------------------------------------------------------------- #
+# kernel_wilcox.R
+#
+# Graded against stats::wilcox.test() rather than against a STATassist kernel,
+# because that is what the Python side ports: SciPy reports no location estimate
+# and no interval for either test, so the whole of R's is written out there.
+#
+# Four paths have to be covered and each one is a different piece of code in R.
+# `exact` is decided by sample size, `n < 50`; ties then decide whether the exact
+# distribution is the classical one over the ranks 1..n or the one induced by the
+# observed rank vector, which may hold halves. The asymptotic interval is a
+# numerical search over a step function, so it is the case where the port has to
+# follow R's root finder and not merely R's formula.
+# --------------------------------------------------------------------------- #
+
+# Two samples large enough to take R off the exact distribution.
+#
+# Drawn under a seed of their own, with the main stream put back afterwards. The
+# fixed inputs above are all drawn from one stream, so taking values out of it
+# here would renumber every case added after this section rather than only the
+# ones this section writes.
+wilcox_stream <- .Random.seed
+set.seed(20260822)
+
+big_x <- r6(stats::rnorm(55, 0.4, 1))
+big_y <- r6(stats::rnorm(60, 0, 1))
+big_df <- data.frame(x = pad(big_x, 60), y = big_y)
+big_pair <- r6(stats::rnorm(55, 0.3, 1))
+
+.Random.seed <- wilcox_stream
+
+# Heavy ties on both paths: small enough for the tie-aware exact distribution,
+# and a longer one that lands on the asymptotic branch instead.
+tie_x <- c(2, 3, 3, 4, 1, 5, 3, 4, 4, 2, 5, 3, 1, 4)
+tie_y <- c(1, 2, 2, 3, 3, 1, 4, 2, 5, 3, 2, 1, 3, 4, 2, 3)
+tie_two_df <- data.frame(x = pad(tie_x, 16), y = tie_y)
+
+long_tie_x <- rep(c(1, 2, 3, 4, 5), times = 11L)
+long_tie_y <- rep(c(1, 2, 2, 3, 4), times = 12L)
+long_tie_df <- data.frame(x = pad(long_tie_x, 60), y = long_tie_y)
+
+wilcox_two <- function(x, y, ...) {
+  res <- suppressWarnings(
+    stats::wilcox.test(x, y, conf.int = TRUE, ...)
+  )
+  list(w_stat = unname(res$statistic), hl_shift = unname(res$estimate),
+       pval = res$p.value,
+       lower_conf = res$conf.int[1], upper_conf = res$conf.int[2])
+}
+
+wilcox_one <- function(x, ...) {
+  res <- suppressWarnings(
+    stats::wilcox.test(x, conf.int = TRUE, ...)
+  )
+  list(v_stat = unname(res$statistic), hl_shift = unname(res$estimate),
+       pval = res$p.value,
+       lower_conf = res$conf.int[1], upper_conf = res$conf.int[2])
+}
+
+write_case(
+  "wilcox_rank_sum_exact",
+  two_df,
+  list(
+    two_sided = wilcox_two(bm_x, bm_y),
+    greater = wilcox_two(bm_x, bm_y, alternative = "greater"),
+    less = wilcox_two(bm_x, bm_y, alternative = "less"),
+    conf_90 = wilcox_two(bm_x, bm_y, conf.level = 0.90),
+    shifted = wilcox_two(bm_x, bm_y, mu = 0.5)
+  )
+)
+
+write_case(
+  "wilcox_rank_sum_exact_tied",
+  tie_two_df,
+  list(
+    two_sided = wilcox_two(tie_x, tie_y),
+    greater = wilcox_two(tie_x, tie_y, alternative = "greater"),
+    less = wilcox_two(tie_x, tie_y, alternative = "less"),
+    conf_99 = wilcox_two(tie_x, tie_y, conf.level = 0.99)
+  )
+)
+
+write_case(
+  "wilcox_rank_sum_asymptotic",
+  big_df,
+  list(
+    two_sided = wilcox_two(big_x, big_y),
+    greater = wilcox_two(big_x, big_y, alternative = "greater"),
+    less = wilcox_two(big_x, big_y, alternative = "less"),
+    no_correction = wilcox_two(big_x, big_y, correct = FALSE)
+  )
+)
+
+write_case(
+  "wilcox_rank_sum_asymptotic_tied",
+  long_tie_df,
+  list(
+    two_sided = wilcox_two(long_tie_x, long_tie_y),
+    greater = wilcox_two(long_tie_x, long_tie_y, alternative = "greater"),
+    less = wilcox_two(long_tie_x, long_tie_y, alternative = "less")
+  )
+)
+
+write_case(
+  "wilcox_signed_rank_exact",
+  pair_df,
+  list(
+    two_sided = wilcox_one(pair_x - pair_y),
+    greater = wilcox_one(pair_x - pair_y, alternative = "greater"),
+    less = wilcox_one(pair_x - pair_y, alternative = "less"),
+    conf_90 = wilcox_one(pair_x - pair_y, conf.level = 0.90),
+    against_mu = wilcox_one(pair_x, mu = 5.2)
+  )
+)
+
+write_case(
+  "wilcox_signed_rank_exact_tied",
+  data.frame(value = tied_value),
+  list(
+    # A zero difference carries no sign, so it leaves the sample: mu is set on
+    # the median to make sure that path is taken.
+    with_zeros = wilcox_one(tied_value, mu = 3),
+    greater = wilcox_one(tied_value, mu = 3, alternative = "greater"),
+    off_centre = wilcox_one(tied_value, mu = 2.5)
+  )
+)
+
+write_case(
+  "wilcox_signed_rank_asymptotic",
+  data.frame(value = big_pair, tied = pad(long_tie_x, 55)),
+  list(
+    two_sided = wilcox_one(big_pair),
+    greater = wilcox_one(big_pair, alternative = "greater"),
+    less = wilcox_one(big_pair, alternative = "less"),
+    no_correction = wilcox_one(big_pair, correct = FALSE),
+    tied = wilcox_one(long_tie_x, mu = 3)
+  )
+)
+
+
+# --------------------------------------------------------------------------- #
 # kernel_anova.R
 # --------------------------------------------------------------------------- #
 
@@ -940,6 +1080,556 @@ write_case(
       fc_log2, fc_feats, fc_log2$group, c("ctrl", "case"),
       fc_mean = "arith", input_scale = "log2"
     ))[fc_feats]
+  )
+)
+
+
+# --------------------------------------------------------------------------- #
+# compare_two_groups.R
+#
+# The whole object rather than one table: what is being graded is the assembly as
+# much as the numbers, so `effect` and all three test tables go out together and
+# `design` goes with them, since which rows were paired and which were dropped is
+# what the numbers rest on.
+# --------------------------------------------------------------------------- #
+
+two_case <- function(...) {
+  res <- suppressMessages(suppressWarnings(STATassist::compare_two_groups(...)))
+  list(
+    group_lv      = res$design$group_lv,
+    pairing       = res$design$pairing,
+    n_dropped     = res$design$n_dropped,
+    unmatched_ids = res$design$unmatched_ids,
+    tr            = res$parameters$tr,
+    fc_mean       = res$parameters$fc_mean,
+    effect        = as_cols(res$effect),
+    t_test        = as_cols(res$tests$t_test),
+    wilcox_test   = as_cols(res$tests$wilcox_test),
+    robust_test   = as_cols(res$tests$robust_test)
+  )
+}
+
+write_case(
+  "two_group_independent",
+  fc_wide,
+  list(
+    plain = two_case(fc_wide, fc_feats, fc_wide$group, c("ctrl", "case"),
+                     diagnose = FALSE),
+    greater = two_case(fc_wide, fc_feats, fc_wide$group, c("ctrl", "case"),
+                       alternative = "greater", diagnose = FALSE),
+    less_90 = two_case(fc_wide, fc_feats, fc_wide$group, c("ctrl", "case"),
+                       alternative = "less", conf_level = 0.90,
+                       diagnose = FALSE),
+    # `control_label` names the second level, which reverses every difference
+    # and ratio without the pair being rewritten.
+    reversed = two_case(fc_wide, fc_feats, fc_wide$group, c("ctrl", "case"),
+                        control_label = "case", diagnose = FALSE),
+    geom = two_case(fc_wide, fc_feats, fc_wide$group, c("ctrl", "case"),
+                    fc_mean = "geom", diagnose = FALSE),
+    # A third level present in `group` and absent from `group_lv`: its rows are
+    # dropped rather than tested.
+    dropped = two_case(fc_wide, fc_feats, fc_wide$group,
+                       c("other", "case"), p_adjust = "holm",
+                       diagnose = FALSE)
+  )
+)
+
+write_case(
+  "two_group_log2",
+  fc_log2,
+  list(
+    # Only `effect` moves onto the raw scale; `x_mean` and `y_mean` in the t-test
+    # stay on the log2 scale the tests ran on.
+    default_geom = two_case(fc_log2, fc_feats, fc_log2$group,
+                            c("ctrl", "case"), input_scale = "log2",
+                            diagnose = FALSE),
+    explicit_arith = two_case(fc_log2, fc_feats, fc_log2$group,
+                              c("ctrl", "case"), fc_mean = "arith",
+                              input_scale = "log2", diagnose = FALSE)
+  )
+)
+
+# Sixteen subjects measured twice. The second feature is built from the two
+# samples the other way round, so a port that pairs the wrong way disagrees on it
+# and not only on the shared one.
+pair_long <- data.frame(
+  metab_1 = c(pair_x, pair_y),
+  metab_2 = r6(c(pair_y + 0.5, pair_x - 0.3)),
+  group   = rep(c("post", "pre"), each = length(pair_x)),
+  subject = rep(sprintf("s%02d", seq_along(pair_x)), times = 2L),
+  stringsAsFactors = FALSE
+)
+pair_feats <- c("metab_1", "metab_2")
+
+# The same data with the `pre` block reordered. Row order pairing silently uses
+# the wrong partners here and `id` recovers the correct answer, which is the one
+# failure mode `id` exists for.
+pair_shuffled <- pair_long[c(1:16, 16 + c(4, 9, 1, 7, 2, 10, 3, 6, 8, 5,
+                                          14, 12, 16, 11, 15, 13)), ]
+
+# One subject measured only once, so its id is dropped from the pairing.
+pair_holed <- pair_long[-20, ]
+
+write_case(
+  "two_group_paired",
+  pair_long,
+  list(
+    by_order = two_case(pair_long, pair_feats, pair_long$group,
+                        c("pre", "post"), paired = TRUE, diagnose = FALSE),
+    by_id = two_case(pair_long, pair_feats, pair_long$group, c("pre", "post"),
+                     id = pair_long$subject, paired = TRUE, diagnose = FALSE),
+    tr_10 = two_case(pair_long, pair_feats, pair_long$group, c("pre", "post"),
+                     id = pair_long$subject, paired = TRUE, tr = 0.1,
+                     diagnose = FALSE),
+    greater = two_case(pair_long, pair_feats, pair_long$group,
+                       c("pre", "post"), id = pair_long$subject, paired = TRUE,
+                       alternative = "greater", diagnose = FALSE)
+  )
+)
+
+write_case(
+  "two_group_paired_id",
+  pair_shuffled,
+  list(
+    shuffled_by_order = two_case(pair_shuffled, pair_feats,
+                                 pair_shuffled$group, c("pre", "post"),
+                                 paired = TRUE, diagnose = FALSE),
+    shuffled_by_id = two_case(pair_shuffled, pair_feats, pair_shuffled$group,
+                              c("pre", "post"), id = pair_shuffled$subject,
+                              paired = TRUE, diagnose = FALSE)
+  )
+)
+
+write_case(
+  "two_group_unmatched",
+  pair_holed,
+  list(
+    holed = two_case(pair_holed, pair_feats, pair_holed$group,
+                     c("pre", "post"), id = pair_holed$subject, paired = TRUE,
+                     diagnose = FALSE)
+  )
+)
+
+# A feature with holes and a feature with none left to test, so the per-feature
+# missing-value handling and the all-NA row are both graded.
+gappy <- fc_wide[fc_wide$group %in% c("ctrl", "case"), ]
+gappy$prot_1[c(2, 3, 9)] <- NA_real_
+gappy$flat <- 4
+gappy$flat[gappy$group == "case"] <- 4
+
+write_case(
+  "two_group_gappy",
+  gappy,
+  list(
+    holes = two_case(gappy, c("prot_1", "prot_2", "flat"), gappy$group,
+                     c("ctrl", "case"), diagnose = FALSE)
+  )
+)
+
+
+# --------------------------------------------------------------------------- #
+# compare_one_sample.R
+# --------------------------------------------------------------------------- #
+
+one_case <- function(...) {
+  res <- suppressMessages(suppressWarnings(STATassist::compare_one_sample(...)))
+  list(
+    mu          = res$design$mu,
+    p           = res$design$p,
+    success     = res$design$success,
+    fc_mean     = res$parameters$fc_mean,
+    effect      = as_cols(res$effect),
+    t_test      = as_cols(res$tests$t_test),
+    wilcox_test = as_cols(res$tests$wilcox_test),
+    prop_test   = as_cols(res$tests$prop_test)
+  )
+}
+
+# One continuous feature with holes, one strictly positive one, and a 0/1 coded
+# one so the proportion test has something it applies to. Built out of the fixed
+# inputs rather than drawn, so this section takes nothing out of the stream the
+# cases below it are drawn from.
+one_df <- data.frame(
+  conc  = fc_wide$prot_2,
+  level = fc_wide$prot_1,
+  flag  = c(1, 0, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0)
+)
+one_df$conc[c(3, 14)] <- NA_real_
+one_feats <- c("conc", "level", "flag")
+
+write_case(
+  "one_sample",
+  one_df,
+  list(
+    plain = one_case(one_df, one_feats, mu = 5, p = 0.5),
+    greater = one_case(one_df, one_feats, mu = 5, p = 0.6,
+                       alternative = "greater"),
+    less_90 = one_case(one_df, one_feats, mu = 5, p = 0.4,
+                       alternative = "less", conf_level = 0.90),
+    geom = one_case(one_df, one_feats, mu = 5, fc_mean = "geom"),
+    # `mu` at zero is the one value a ratio cannot be taken against, and it is
+    # also the default.
+    mu_zero = one_case(one_df, one_feats, p = 0.5, p_adjust = "holm"),
+    # The success value counted is not the only one a binary feature can hold.
+    success_zero = one_case(one_df, "flag", mu = 0.5, p = 0.5, success = 0)
+  )
+)
+
+one_log2 <- one_df
+one_log2$level <- r6(log2(one_df$level))
+write_case(
+  "one_sample_log2",
+  one_log2,
+  list(
+    # On the log2 scale the reference is 2^mu, positive whatever mu is, so
+    # mu = 0 means a reference of 1 rather than an undefined ratio.
+    default_geom = one_case(one_log2, "level", mu = 2, input_scale = "log2"),
+    mu_zero = one_case(one_log2, "level", mu = 0, input_scale = "log2"),
+    explicit_arith = one_case(one_log2, "level", mu = 2, fc_mean = "arith",
+                              input_scale = "log2")
+  )
+)
+
+# The proportion test on its own, over the shapes that separate R's corrections:
+# a count exactly at the null, one at a boundary, and one small enough that the
+# Yates cap binds.
+prop_params <- data.frame(
+  n_success = c(14, 9, 18, 1, 5, 5, 5, 1),
+  n = c(18, 18, 18, 18, 10, 10, 10, 2),
+  p = c(0.5, 0.5, 0.5, 0.05, 0.5, 0.3, 0.8, 0.5),
+  alternative = c("two.sided", "two.sided", "two.sided", "two.sided",
+                  "greater", "less", "two.sided", "two.sided"),
+  conf_level = c(0.95, 0.95, 0.95, 0.95, 0.95, 0.90, 0.99, 0.95),
+  stringsAsFactors = FALSE
+)
+write_case(
+  "one_sample_prop",
+  prop_params,
+  as_cols(t(vapply(seq_len(nrow(prop_params)), function(i) {
+    v <- c(rep(1, prop_params$n_success[i]),
+           rep(0, prop_params$n[i] - prop_params$n_success[i]))
+    STATassist:::sa_one_sample_prop(v, prop_params$p[i], 1,
+                                    prop_params$alternative[i],
+                                    prop_params$conf_level[i])
+  }, numeric(11))))
+)
+
+
+# --------------------------------------------------------------------------- #
+# compare_multiple_groups.R
+#
+# The whole object again, and here the pairwise stage is most of it: `posthoc` is
+# the ragged record of what was asked and `pairwise` is the rectangular view of
+# the same numbers, so both go out and a port that rectangularises the wrong way
+# round disagrees on one of them.
+# --------------------------------------------------------------------------- #
+
+multi_case <- function(...) {
+  res <- suppressMessages(suppressWarnings(
+    STATassist::compare_multiple_groups(...)
+  ))
+  out <- list(
+    group_lv      = res$design$group_lv,
+    pairing       = res$design$pairing,
+    n_dropped     = res$design$n_dropped,
+    unmatched_ids = res$design$unmatched_ids,
+    tr            = res$parameters$tr,
+    fc_mean       = res$parameters$fc_mean,
+    n_posthoc     = nv(res$parameters$n_posthoc),
+    effect        = as_cols(res$effect),
+    tests         = lapply(res$tests, as_cols)
+  )
+  if (!is.null(res$posthoc)) {
+    out$posthoc <- lapply(res$posthoc, as_cols)
+    out$pairwise <- lapply(res$pairwise, function(by_contrast) {
+      lapply(by_contrast, as_cols)
+    })
+  }
+  out
+}
+
+multi_feats <- c("gene_1", "gene_2", "gene_3")
+multi_lv <- c("ctrl", "treat_a", "treat_b")
+
+write_case(
+  "multi_group_independent",
+  wide,
+  list(
+    # `posthoc_alpha = 1` on purpose: with three features of noise the default
+    # would leave the pairwise stage empty, and an empty table grades nothing.
+    all_posthoc = multi_case(wide, multi_feats, wide$group, multi_lv,
+                             posthoc_alpha = 1, diagnose = FALSE),
+    # The default threshold, so which features qualify is graded too.
+    default_alpha = multi_case(wide, multi_feats, wide$group, multi_lv,
+                               diagnose = FALSE),
+    # `control_label` names the last level, which re-points every ratio and puts
+    # that level on the subtracted side of every contrast.
+    reversed = multi_case(wide, multi_feats, wide$group, multi_lv,
+                          control_label = "treat_b", posthoc_alpha = 1,
+                          diagnose = FALSE),
+    tuned = multi_case(wide, multi_feats, wide$group, multi_lv,
+                       conf_level = 0.90, tr = 0.1, posthoc_alpha = 1,
+                       p_adjust = "holm", posthoc_p_adjust = "BH",
+                       diagnose = FALSE),
+    no_posthoc = multi_case(wide, multi_feats, wide$group, multi_lv,
+                            posthoc = FALSE, diagnose = FALSE)
+  )
+)
+
+# Four levels of unequal size and spread, which is what separates the pooled
+# tests from the Welch family, and one feature so the whole object is small
+# enough to read.
+write_case(
+  "multi_group_unbalanced",
+  long_df,
+  list(
+    four_levels = multi_case(long_df, "value", long_df$group,
+                             c("ctrl", "low", "mid", "high"),
+                             posthoc_alpha = 1, diagnose = FALSE),
+    # Three of the four named, so the fourth level's rows are dropped rather
+    # than tested.
+    dropped = multi_case(long_df, "value", long_df$group,
+                         c("ctrl", "mid", "high"), posthoc_alpha = 1,
+                         diagnose = FALSE)
+  )
+)
+
+# Strictly positive, so the geometric centre and the log2 pipeline both exist.
+# All three of its levels are named here, where the two-group cases kept two.
+fc_lv <- c("ctrl", "case", "other")
+
+write_case(
+  "multi_group_effect",
+  fc_wide,
+  list(
+    arith = multi_case(fc_wide, fc_feats, fc_wide$group, fc_lv,
+                       posthoc_alpha = 1, diagnose = FALSE),
+    geom = multi_case(fc_wide, fc_feats, fc_wide$group, fc_lv,
+                      fc_mean = "geom", posthoc_alpha = 1, diagnose = FALSE)
+  )
+)
+
+write_case(
+  "multi_group_log2",
+  fc_log2,
+  list(
+    # Only `effect` moves back onto the raw scale; the tests stay on the log2
+    # values they were handed.
+    default_geom = multi_case(fc_log2, fc_feats, fc_log2$group, fc_lv,
+                              input_scale = "log2", posthoc_alpha = 1,
+                              diagnose = FALSE),
+    explicit_arith = multi_case(fc_log2, fc_feats, fc_log2$group, fc_lv,
+                                fc_mean = "arith", input_scale = "log2",
+                                posthoc_alpha = 1, diagnose = FALSE)
+  )
+)
+
+# Twelve subjects under three conditions, in long format with a subject key.
+# Built from the same matrix the repeated kernels are graded on, so a
+# disagreement here is about the assembly rather than about the test.
+rep_long <- data.frame(
+  score   = as.numeric(rm_mat),
+  cond    = rep(colnames(rm_mat), each = nrow(rm_mat)),
+  subject = rep(sprintf("s%02d", seq_len(nrow(rm_mat))),
+                times = ncol(rm_mat)),
+  stringsAsFactors = FALSE
+)
+# A second feature built from the conditions the other way round, so a port that
+# lines the rectangle up wrongly disagrees on it and not only on the shared one.
+rep_long$shifted <- r6(rev(rep_long$score) + 0.25)
+rep_feats <- c("score", "shifted")
+rep_lv <- colnames(rm_mat)
+
+# One subject measured under only two of the three conditions, so its rows are
+# dropped whole.
+rep_holed <- rep_long[!(rep_long$subject == "s05" & rep_long$cond == "t2"), ]
+
+# A hole in one feature only, which costs that feature one subject and leaves
+# the other with all twelve.
+rep_gappy <- rep_long
+rep_gappy$score[rep_gappy$subject == "s03" & rep_gappy$cond == "t3"] <- NA_real_
+
+write_case(
+  "multi_group_repeated",
+  rep_long,
+  list(
+    plain = multi_case(rep_long, rep_feats, rep_long$cond, rep_lv,
+                       id = rep_long$subject, paired = TRUE,
+                       posthoc_alpha = 1, diagnose = FALSE),
+    tuned = multi_case(rep_long, rep_feats, rep_long$cond, rep_lv,
+                       id = rep_long$subject, paired = TRUE,
+                       conf_level = 0.90, posthoc_alpha = 1,
+                       posthoc_p_adjust = "BH", diagnose = FALSE),
+    reversed = multi_case(rep_long, rep_feats, rep_long$cond, rep_lv,
+                          id = rep_long$subject, paired = TRUE,
+                          control_label = "t3", posthoc_alpha = 1,
+                          diagnose = FALSE)
+  )
+)
+
+write_case(
+  "multi_group_unmatched",
+  rep_holed,
+  list(
+    holed = multi_case(rep_holed, rep_feats, rep_holed$cond, rep_lv,
+                       id = rep_holed$subject, paired = TRUE,
+                       posthoc_alpha = 1, diagnose = FALSE)
+  )
+)
+
+write_case(
+  "multi_group_gappy",
+  rep_gappy,
+  list(
+    per_feature_holes = multi_case(rep_gappy, rep_feats, rep_gappy$cond, rep_lv,
+                                   id = rep_gappy$subject, paired = TRUE,
+                                   posthoc_alpha = 1, diagnose = FALSE)
+  )
+)
+
+
+# --------------------------------------------------------------------------- #
+# estimate_significance.R
+#
+# The verdict and the attributes together: the cutoffs travel with the table and
+# draw_volcano_plot() reads its guides off them, so a port that computes the
+# right flags and loses the attributes has not finished the job.
+#
+# `is_signif` is three-valued and goes out as such. jsonlite writes a logical NA
+# as "NA" under `na = "string"`, which keeps "undecided" apart from FALSE.
+# --------------------------------------------------------------------------- #
+
+sig_attrs <- function(tbl) {
+  keep <- c("analysis", "group_lv", "test", "test_label", "adj_type",
+            "log2fc_cutoff", "pval_cutoff", "contrast", "group1", "group2")
+  held <- attributes(tbl)[keep]
+  names(held) <- keep
+  # A NULL attribute - `group_lv` of a one-sample comparison, say - has to
+  # survive as a stated absence rather than be dropped from the object.
+  held[vapply(held, is.null, logical(1))] <- NA
+  held
+}
+
+sig_one <- function(tbl) {
+  list(table = as_cols(tbl), attrs = sig_attrs(tbl))
+}
+
+est_case <- function(...) {
+  res <- suppressMessages(suppressWarnings(
+    STATassist::estimate_significance(...)
+  ))
+  out <- list(analysis_type = res$analysis_type)
+  if (is.data.frame(res$significance)) {
+    out$significance <- sig_one(res$significance)
+  } else {
+    out$by_contrast <- lapply(res$significance, sig_one)
+  }
+  out
+}
+
+two_res <- suppressMessages(suppressWarnings(STATassist::compare_two_groups(
+  fc_wide, fc_feats, fc_wide$group, c("ctrl", "case"), diagnose = FALSE
+)))
+
+write_case(
+  "estimate_two_group",
+  fc_wide,
+  list(
+    # The default cutoff of one log2 unit, which these two groups are nowhere
+    # near, so the verdict is FALSE throughout and the magnitude rule is what
+    # decided it.
+    default = est_case(two_res),
+    loose = est_case(two_res, log2fc_cutoff = 0.05),
+    wilcox = est_case(two_res, test = "wilcox_test", log2fc_cutoff = 0.05),
+    robust = est_case(two_res, test = "robust_test", log2fc_cutoff = 0.05),
+    # Naming a method re-adjusts the raw column rather than the adjusted one, so
+    # this is not the comparison's BH followed by Bonferroni.
+    bonferroni = est_case(two_res, adj_type = "bonferroni",
+                          log2fc_cutoff = 0.05),
+    raw = est_case(two_res, adj_type = "none", log2fc_cutoff = 0.05,
+                   pval_cutoff = 0.2)
+  )
+)
+
+# A feature whose two centres have opposite signs gives log2fc = NaN, and one
+# whose numerator is zero gives -Inf. The first is undecided and the second
+# clears any magnitude cutoff, which is the distinction the three-valued rule
+# exists for.
+edge_wide <- data.frame(
+  moved   = fc_wide$prot_1[1:12],
+  flipped = c(fc_wide$prot_2[1:6], -fc_wide$prot_2[7:12]),
+  zeroed  = c(rep(0, 6), fc_wide$prot_2[7:12]),
+  group   = rep(c("ctrl", "case"), each = 6),
+  stringsAsFactors = FALSE
+)
+edge_res <- suppressMessages(suppressWarnings(STATassist::compare_two_groups(
+  edge_wide, c("moved", "flipped", "zeroed"), edge_wide$group,
+  c("ctrl", "case"), diagnose = FALSE
+)))
+
+write_case(
+  "estimate_undecided",
+  edge_wide,
+  list(
+    plain = est_case(edge_res, log2fc_cutoff = 0.05),
+    # A cutoff no finite ratio here can clear, which leaves the infinite one
+    # clearing it and the undecided one still undecided.
+    strict = est_case(edge_res, log2fc_cutoff = 8)
+  )
+)
+
+one_res <- suppressMessages(suppressWarnings(STATassist::compare_one_sample(
+  one_df, one_feats, mu = 5, p = 0.5
+)))
+
+write_case(
+  "estimate_one_sample",
+  one_df,
+  list(
+    # No group levels to carry, so `group_lv` is a stated absence.
+    plain = est_case(one_res, log2fc_cutoff = 0.05),
+    prop = est_case(one_res, test = "prop_test", log2fc_cutoff = 0.05)
+  )
+)
+
+multi_res <- suppressMessages(suppressWarnings(
+  STATassist::compare_multiple_groups(wide, multi_feats, wide$group, multi_lv,
+                                      posthoc_alpha = 1, diagnose = FALSE)
+))
+
+write_case(
+  "estimate_multi_group",
+  wide,
+  list(
+    # The omnibus reading carries `extreme_level`, naming the level whose centre
+    # produced `log2fc`.
+    omnibus = est_case(multi_res, log2fc_cutoff = 0.05),
+    kruskal = est_case(multi_res, test = "kruskal_test",
+                       log2fc_cutoff = 0.05),
+    # One verdict table per contrast, each with its own log2fc and its own
+    # adjustment axis.
+    by_contrast = est_case(multi_res, by = "contrast", log2fc_cutoff = 0.05),
+    # Naming a method here adjusts across the features of one contrast, which is
+    # a different family from the one the pairwise stage corrected over.
+    by_contrast_bh = est_case(multi_res, by = "contrast", adj_type = "BH",
+                              log2fc_cutoff = 0.05)
+  )
+)
+
+# A strict post-hoc threshold leaves features that were never compared
+# pairwise, whose p-value is absent in every contrast table while their ratio
+# is not.
+multi_strict <- suppressMessages(suppressWarnings(
+  STATassist::compare_multiple_groups(wide, multi_feats, wide$group, multi_lv,
+                                      posthoc_alpha = 0.001, diagnose = FALSE)
+))
+
+write_case(
+  "estimate_not_asked",
+  wide,
+  list(
+    by_contrast = est_case(multi_strict, by = "contrast",
+                           log2fc_cutoff = 0.05)
   )
 )
 

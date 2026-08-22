@@ -1,0 +1,1 @@
+{"two_sided":{"w_stat":143,"hl_shift":1,"pval":0.1956369046299,"lower_conf":0,"upper_conf":2},"greater":{"w_stat":143,"hl_shift":1,"pval":0.0978184523149502,"lower_conf":0,"upper_conf":"Inf"},"less":{"w_stat":143,"hl_shift":1,"pval":0.911777472117055,"lower_conf":"-Inf","upper_conf":1},"conf_99":{"w_stat":143,"hl_shift":1,"pval":0.1956369046299,"lower_conf":-1,"upper_conf":2}}
