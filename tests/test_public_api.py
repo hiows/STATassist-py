@@ -18,6 +18,7 @@ import statassist
 #: functions.
 PUBLIC = (
     "center_by_control",
+    "compare_factorial_groups",
     "compare_multiple_groups",
     "compare_one_sample",
     "compare_two_groups",
@@ -25,6 +26,7 @@ PUBLIC = (
     "draw_butterfly_hist",
     "draw_forest_plot",
     "draw_heatmap",
+    "draw_interaction_plot",
     "draw_volcano_plot",
     "estimate_significance",
     "make_block_cor",

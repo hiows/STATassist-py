@@ -27,7 +27,6 @@ Every index is zero-based
 
 from __future__ import annotations
 
-import math
 from collections.abc import Iterable, Mapping, Sequence
 from itertools import combinations
 from typing import Any, NamedTuple
@@ -36,6 +35,7 @@ import numpy as np
 import pandas as pd
 
 from .errors import SaValueError
+from .rstats import r_mean
 from .tables import level_pairs
 from .validate import control_first
 
@@ -276,20 +276,10 @@ def fact_subsets(term: Sequence[str]) -> list[tuple[str, ...]]:
 def _mean(values: np.ndarray) -> float:
     """The correctly rounded mean, which is what R's ``mean()`` aims at.
 
-    R accumulates in ``long double`` and then makes a correction pass over the
-    residuals, so its answer is the correctly rounded one to within a hair.
-    :func:`numpy.mean` sums pairwise in double and lands within an ULP of it,
-    which is invisible at the tolerance the rest of this port is graded at and
-    not invisible here: :func:`fact_component` tests a component for being
-    exactly zero, and :func:`fact_term_effect` breaks a tie in absolute value
-    that a symmetric two-level factor produces by construction. An ULP decides
-    that tie, and with it the sign of a reported effect.
-
-    :func:`math.fsum` is exactly rounded, so it agrees with what R is aiming at
-    rather than with how R gets there - which cannot be copied anyway, since
-    ``long double`` is 80 bits where R is built and 64 where CPython is.
+    Delegates to :func:`~statassist.core.r_mean` so the same rounding is used
+    here and in the cell centres that feed :func:`fact_term_effect`.
     """
-    return math.fsum(values.tolist()) / values.size
+    return r_mean(values)
 
 
 def fact_collapse(eff: Any, cells: pd.DataFrame, keep: Sequence[str]) -> np.ndarray:
@@ -375,7 +365,9 @@ def fact_term_effect(
     levels differ by ``d`` are ``-d/2`` and ``+d/2``. That is the quantity
     :func:`~statassist.simulate_factorial_groups` records, and the reason to keep
     it rather than rescale to a pairwise difference is that the truth table and a
-    measured one are then the same number.
+    measured one are then the same number. It is therefore not a fold-change
+    up/down between two levels; cutoffs written for a fold change are stricter
+    here than they look.
 
     Args:
         eff: One value per cell, in ``cells`` order, on whatever scale the caller
@@ -384,8 +376,11 @@ def fact_term_effect(
         terms: One entry per term, as :func:`fact_terms` returns.
 
     Returns:
-        One entry per term, in ``terms`` order. Ties in absolute value take the
-        earlier cell, which is the earlier level of the first factor.
+        One entry per term, in ``terms`` order. Absolute values within
+        :data:`FACT_TOL` of the maximum are treated as a tie, and the earlier
+        cell wins (the earlier level of the first factor, which is the reference
+        after ``control_label``). That keeps a two-level term from flipping sign
+        when an ULP breaks an exact ``+/- d/2`` tie.
     """
     out = np.empty(len(terms), dtype=float)
     for position, term in enumerate(terms):
@@ -393,8 +388,27 @@ def fact_term_effect(
         if np.all(np.isnan(component)):
             out[position] = np.nan
             continue
-        out[position] = component[int(np.nanargmax(np.abs(component)))]
+        out[position] = component[_first_max_abs(component)]
     return out
+
+
+def _first_max_abs(component: np.ndarray) -> int:
+    """Index of the largest ``|component|``, with near-ties taking the earlier cell.
+
+    Values within :data:`FACT_TOL` of the running maximum are treated as equal, so
+    a two-level factor's ``-d/2`` / ``+d/2`` pair keeps the earlier (reference)
+    cell even when floating point has made one side a hair larger.
+    """
+    best = -np.inf
+    chosen: int | None = None
+    for index, value in enumerate(component):
+        magnitude = abs(float(value))
+        if not np.isfinite(magnitude):
+            continue
+        if chosen is None or magnitude > best + FACT_TOL:
+            best = magnitude
+            chosen = index
+    return 0 if chosen is None else chosen
 
 
 class ContrastSkeleton(NamedTuple):

@@ -15,10 +15,12 @@ import pytest
 from golden import assert_close, assert_frame_close, load_case
 
 from statassist import (
+    compare_factorial_groups,
     compare_multiple_groups,
     compare_one_sample,
     compare_two_groups,
     estimate_significance,
+    simulate_factorial_groups,
     simulate_multiple_groups,
     simulate_two_groups,
 )
@@ -245,7 +247,7 @@ class TestArgumentChecks:
         with pytest.raises(SaValueError, match="`by` must be one of"):
             estimate_significance(two_group, by="feature")
 
-    def test_the_term_reading_is_not_part_of_this_port(self, two_group):
+    def test_the_term_reading_needs_a_term_axis(self, two_group):
         with pytest.raises(SaValueError, match="needs a term axis"):
             estimate_significance(two_group, by="term")
 
@@ -317,3 +319,45 @@ class TestContract:
         assert "one table per contrast" in text
         for contrast in res["pairwise"]["anova_test"]:
             assert contrast in text
+
+
+class TestFactorial:
+    @pytest.fixture(scope="module")
+    def factorial(self):
+        sim = simulate_factorial_groups(n_feats=8, n_per_cell=6, seed=7)
+        res = compare_factorial_groups(**sim.args, diagnose=False)
+        return sim, res
+
+    def test_omnibus_carries_extreme_cell(self, factorial):
+        _, res = factorial
+        verdict = estimate_significance(res, log2fc_cutoff=0.5).significance
+        assert "extreme_cell" in verdict.columns
+        assert list(verdict["extreme_cell"]) == list(res.effect["extreme_cell"])
+
+    def test_term_reading_returns_one_table_per_term(self, factorial):
+        _, res = factorial
+        verdict = estimate_significance(res, by="term", log2fc_cutoff=0.25)
+        assert list(verdict.significance) == list(dict.fromkeys(res.terms["terms"]))
+        first = next(iter(verdict.significance.values()))
+        assert first.attrs["term"] == next(iter(verdict.significance))
+        assert "term_order" in first.attrs
+
+    def test_term_log2fc_comes_from_log2_effect(self, factorial):
+        _, res = factorial
+        verdict = estimate_significance(res, by="term", log2fc_cutoff=0.25)
+        term = next(iter(verdict.significance))
+        table = verdict.significance[term]
+        expected = res.terms.loc[res.terms["terms"] == term, "log2_effect"].to_numpy()
+        assert_close(list(table["log2fc"]), list(expected))
+
+    def test_contrast_reading_is_refused_for_factorial(self, factorial):
+        _, res = factorial
+        with pytest.raises(SaValueError, match="pairwise stage"):
+            estimate_significance(res, by="contrast")
+
+    def test_repr_of_a_term_reading_lists_one_line_per_term(self, factorial):
+        _, res = factorial
+        text = repr(estimate_significance(res, by="term", log2fc_cutoff=0.25))
+        assert "one table per term" in text
+        for term in dict.fromkeys(res.terms["terms"]):
+            assert term in text

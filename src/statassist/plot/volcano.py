@@ -43,6 +43,8 @@ _GUIDE_COLOR = "#00CD00"
 
 def draw_volcano_plot(
     significance_result: Any,
+    terms: Any = None,
+    panel_nrow: int | None = None,
     use_adjusted: bool = True,
     log2fc_cutoff: float | None = None,
     pval_cutoff: float | None = None,
@@ -60,56 +62,34 @@ def draw_volcano_plot(
 ) -> None:
     """Plot ``log2fc`` against ``-log10(pvalue)`` and label the strongest features.
 
+    A term reading (``estimate_significance(..., by="term")``) is drawn as one
+    panel per term. A contrast reading still needs one table named explicitly.
+
+    On a term panel the x axis is that term's ``log2_effect`` (labelled
+    ``log2 effect``), not a fold change between two levels. Red and blue are
+    therefore not the same up/down statement as an omnibus or two-group volcano.
+    Python breaks near-ties toward the earlier cell; CRAN R may still put a
+    feature on the opposite side with the same absolute effect and p-value until
+    it gains the same rule.
+
     Args:
         significance_result: The object returned by
-            :func:`~statassist.estimate_significance`, whose ``significance``
-            element is what is plotted. With ``by="contrast"`` that element holds
-            one table per contrast, so name the one to draw:
-            ``sig["significance"]["case - control"]``. A bare verdict frame is
-            accepted too.
-        use_adjusted: If ``True``, plot and threshold the ``adj_pvalue`` column;
-            if ``False``, the unadjusted ``pvalue``. The axis label follows, so
-            the y axis always describes what was actually plotted.
-        log2fc_cutoff: Cutoff for calling a feature changed, drawn as a guide.
-            ``None`` takes the value :func:`~statassist.estimate_significance`
-            recorded, so the guides agree with the ``is_signif`` column.
-        pval_cutoff: The same for significance.
-        anno_feats: If ``True``, label the strongest significant features. A run
-            where no feature clears both cutoffs still draws the plot, with a
-            note in place of the labels.
-        anno_top: How many features to label in each direction, so up to
-            ``2 * anno_top`` labels in total.
+            :func:`~statassist.estimate_significance`, or a bare verdict frame.
+        terms: Term labels to draw under a term reading, or ``None`` for the
+            default (first two main effects and their interaction).
+        panel_nrow: Rows for the term-panel layout, or ``None`` for one row.
+        use_adjusted: If ``True``, plot and threshold ``adj_pvalue``.
+        log2fc_cutoff: Effect cutoff; ``None`` takes the recorded value.
+        pval_cutoff: Significance cutoff; ``None`` takes the recorded value.
+        anno_feats: If ``True``, label the strongest significant features.
+        anno_top: How many features to label in each direction.
         cex_anno: Character expansion for those labels.
-        xlim: Length-2 x axis range, or ``None`` to derive it from the data.
+        xlim: Length-2 x axis range, or ``None`` to derive it.
         ylim: The same for the y axis.
-        xlab: X axis label, or ``None`` to derive it from what ``log2fc``
-            compares in the comparison behind the verdict.
-        main: Plot title.
-        cex_lab: Character expansion for the axis labels.
-        cex_axis: Character expansion for the axis annotation.
-        cex_main: Character expansion for the title.
-        margin: Plot margins in lines of text: bottom, left, top, right, which
-            is R's ``mar``.
-
-    Returns:
-        ``None``. The figure is drawn on the current figure, as R draws on the
-        current device.
-
-    Raises:
-        SaValueError: If an argument is out of range, if the table is missing a
-            column the plot needs, if the cutoffs are neither supplied nor
-            recorded, or if nothing finite can be plotted.
-
-    Examples:
-        >>> import matplotlib
-        >>> matplotlib.use("Agg")
-        >>> from statassist import compare_two_groups, estimate_significance
-        >>> from statassist import draw_volcano_plot, simulate_two_groups
-        >>> sim = simulate_two_groups(n_feats=20, n_up=3, n_down=3, seed=5)
-        >>> sig = estimate_significance(
-        ...     compare_two_groups(**sim.args, diagnose=False), log2fc_cutoff=0.1
-        ... )
-        >>> draw_volcano_plot(sig, main="case vs control")
+        xlab: X axis label, or ``None`` to derive it.
+        main: Plot title (figure title when drawing term panels).
+        cex_lab, cex_axis, cex_main: Character expansion multipliers.
+        margin: Plot margins in lines of text: bottom, left, top, right.
     """
     use_adjusted = check_flag(use_adjusted, "use_adjusted")
     anno_feats = check_flag(anno_feats, "anno_feats")
@@ -121,34 +101,107 @@ def draw_volcano_plot(
     margins = check_margin(margin)
     x_limits = check_lim(xlim, "xlim")
     y_limits = check_lim(ylim, "ylim")
+    if panel_nrow is not None:
+        from ..core.validate import check_count
 
-    # The verdict object carries the table beside the scenario name; the table on
-    # its own is still accepted, since selecting rows from it produces one.
+        panel_nrow = check_count(panel_nrow, "panel_nrow", 1)
+    if terms is not None:
+        if not isinstance(terms, (list, tuple)) and not (
+            isinstance(terms, np.ndarray) and terms.dtype.kind in "UO"
+        ):
+            if isinstance(terms, str):
+                terms = [terms]
+            else:
+                raise SaValueError("`terms` must be NULL or a character vector of term labels.")
+        terms = [str(name) for name in terms]
+        if not terms or any(name == "" for name in terms):
+            raise SaValueError("`terms` must be NULL or a character vector of term labels.")
+
     if isinstance(significance_result, SaSignificance):
         significance_result = significance_result["significance"]
+
+    if isinstance(significance_result, Mapping) and not isinstance(
+        significance_result, pd.DataFrame
+    ):
+        tables = _volcano_term_tables(significance_result)
+        selected = {name: tables[name] for name in _volcano_terms(tables, terms)}
+        _volcano_panels(
+            selected,
+            panel_nrow,
+            use_adjusted,
+            log2fc_cutoff,
+            pval_cutoff,
+            anno_feats,
+            anno_top,
+            cex_anno,
+            x_limits,
+            y_limits,
+            xlab,
+            main,
+            cex_lab,
+            cex_axis,
+            cex_main,
+            margins,
+        )
+        return
+
     if not isinstance(significance_result, pd.DataFrame):
         raise SaValueError(_naming_message(significance_result))
 
-    p_col = "adj_pvalue" if use_adjusted else "pvalue"
-    _check_columns(significance_result, p_col)
-    cut_fc, cut_p = _cutoffs(significance_result, log2fc_cutoff, pval_cutoff)
+    _volcano_one(
+        significance_result,
+        use_adjusted,
+        log2fc_cutoff,
+        pval_cutoff,
+        anno_feats,
+        anno_top,
+        cex_anno,
+        x_limits,
+        y_limits,
+        xlab,
+        main,
+        cex_lab,
+        cex_axis,
+        cex_main,
+        margins,
+        ax=None,
+    )
 
-    features = [str(name) for name in significance_result["features"]]
+
+def _volcano_one(
+    table: pd.DataFrame,
+    use_adjusted: bool,
+    log2fc_cutoff: float | None,
+    pval_cutoff: float | None,
+    anno_feats: bool,
+    anno_top: int,
+    cex_anno: float,
+    x_limits: tuple[float, float] | None,
+    y_limits: tuple[float, float] | None,
+    xlab: str | None,
+    main: str | None,
+    cex_lab: float,
+    cex_axis: float,
+    cex_main: float,
+    margins: tuple[float, float, float, float],
+    ax: Any = None,
+) -> None:
+    """Draw one volcano panel on ``ax``, or on a fresh figure when ``ax`` is None."""
+    p_col = "adj_pvalue" if use_adjusted else "pvalue"
+    _check_columns(table, p_col)
+    cut_fc, cut_p = _cutoffs(table, log2fc_cutoff, pval_cutoff)
+
+    features = [str(name) for name in table["features"]]
     check_feat_names(features)
-    log2fc = significance_result["log2fc"].to_numpy(dtype=float)
-    pvalue = significance_result[p_col].to_numpy(dtype=float)
+    log2fc = table["log2fc"].to_numpy(dtype=float)
+    pvalue = table[p_col].to_numpy(dtype=float)
     check_pvalues(pvalue, p_col)
 
-    # A p-value of 0 gives -log10(p) = inf, which would make the axis limit
-    # infinite and blank the plot. The axis follows the finite values and the
-    # infinite ones are drawn at the top of it instead of being discarded.
     with np.errstate(divide="ignore", invalid="ignore"):
         neglog_p = -np.log10(pvalue)
     x_limits, y_limits = _limits(log2fc, neglog_p, cut_fc, cut_p, x_limits, y_limits)
     label_offset = (y_limits[1] - y_limits[0]) * 0.05
 
-    # Capped points are pulled just inside the panel rather than onto its edge,
-    # so that a label still fits above them.
     plot_y = neglog_p.copy()
     plot_x = log2fc.copy()
     capped_y = np.isinf(plot_y)
@@ -171,16 +224,15 @@ def draw_volcano_plot(
             f"{detail}; their true position is off the axis."
         )
 
-    # One mask per direction, shared by the points and the labels so that a point
-    # can never be coloured as changed while its label is left out, or vice versa.
     with np.errstate(invalid="ignore"):
         passes_p = ~np.isnan(pvalue) & (pvalue <= cut_p)
         is_up = passes_p & ~np.isnan(log2fc) & (log2fc >= cut_fc)
         is_down = passes_p & ~np.isnan(log2fc) & (log2fc <= -cut_fc)
 
-    fig = figure()
-    ax = fig.add_subplot()
-    set_margin(fig, margins)
+    if ax is None:
+        fig = figure()
+        ax = fig.add_subplot()
+        set_margin(fig, margins)
 
     ax.scatter(plot_x, plot_y, color=NS_COLOR, s=20)
     ax.scatter(plot_x[is_up], plot_y[is_up], color=UP_COLOR, s=20)
@@ -191,7 +243,7 @@ def draw_volcano_plot(
 
     ax.set_xlim(x_limits)
     ax.set_ylim(y_limits)
-    ax.set_xlabel(_xlab(significance_result) if xlab is None else xlab, fontsize=font(cex_lab))
+    ax.set_xlabel(_xlab(table) if xlab is None else xlab, fontsize=font(cex_lab))
     y_lab = r"$-\log_{10}$ adjusted $P$" if use_adjusted else r"$-\log_{10}\,P$"
     ax.set_ylabel(y_lab, fontsize=font(cex_lab))
     ax.tick_params(labelsize=font(cex_axis))
@@ -215,13 +267,137 @@ def draw_volcano_plot(
                 )
 
 
-def _naming_message(held: Any) -> str:
-    """What to say to a caller who handed over a whole contrast reading.
+def _volcano_term_tables(held: Mapping[str, Any]) -> dict[str, pd.DataFrame]:
+    """The verdict tables of a term reading, or a refusal for a contrast list."""
+    if not held or not all(isinstance(table, pd.DataFrame) for table in held.values()):
+        raise SaValueError(
+            "`significance_result` must be the object returned by estimate_significance()."
+        )
+    labels: list[str] = []
+    for table in held.values():
+        term = table.attrs.get("term")
+        labels.append(str(term) if term is not None else "")
+    if any(label == "" for label in labels):
+        raise SaValueError(_naming_message(held))
+    return {label: table for label, table in zip(labels, held.values(), strict=True)}
 
-    Port of ``sa_volcano_term_tables()``'s refusal. A list of contrasts is as
-    long as the level counts make it, so the plot asks which one to draw. The
-    term reading R draws whole arrives with the factorial scenario.
-    """
+
+def _volcano_terms(tables: Mapping[str, pd.DataFrame], terms: list[str] | None) -> list[str]:
+    """Which terms earn a panel."""
+    labels = list(tables)
+    if terms is not None:
+        unknown = [name for name in terms if name not in labels]
+        if unknown:
+            raise SaValueError(
+                "`terms` names term(s) the verdict does not hold: "
+                + ", ".join(unknown)
+                + ". It holds "
+                + ", ".join(labels)
+                + "."
+            )
+        return list(dict.fromkeys(terms))
+
+    orders = [int(tables[name].attrs.get("term_order", 0)) for name in labels]
+    mains = [name for name, order in zip(labels, orders, strict=True) if order == 1]
+    if len(mains) < 2:
+        return labels
+    pair = mains[:2]
+    wanted = [name for name in [pair[0], pair[1], f"{pair[0]}:{pair[1]}"] if name in tables]
+    left_out = [name for name in labels if name not in wanted]
+    if left_out:
+        notify(
+            f"Drew the terms of {pair[0]} and {pair[1]}, leaving out "
+            + ", ".join(left_out)
+            + ". Name terms in `terms` to draw those instead."
+        )
+    return wanted
+
+
+def _volcano_panels(
+    tables: Mapping[str, pd.DataFrame],
+    panel_nrow: int | None,
+    use_adjusted: bool,
+    log2fc_cutoff: float | None,
+    pval_cutoff: float | None,
+    anno_feats: bool,
+    anno_top: int,
+    cex_anno: float,
+    xlim: tuple[float, float] | None,
+    ylim: tuple[float, float] | None,
+    xlab: str | None,
+    main: str | None,
+    cex_lab: float,
+    cex_axis: float,
+    cex_main: float,
+    margins: tuple[float, float, float, float],
+) -> None:
+    """One volcano plot per term, on one figure."""
+    p_col = "adj_pvalue" if use_adjusted else "pvalue"
+    for table in tables.values():
+        _check_columns(table, p_col)
+
+    first = next(iter(tables.values()))
+    cut_fc, cut_p = _cutoffs(first, log2fc_cutoff, pval_cutoff)
+
+    # Shared axes across panels unless the caller fixed them.
+    if xlim is None or ylim is None:
+        all_fc: list[float] = []
+        all_neg: list[float] = []
+        for table in tables.values():
+            log2fc = table["log2fc"].to_numpy(dtype=float)
+            pvalue = table[p_col].to_numpy(dtype=float)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                neglog_p = -np.log10(pvalue)
+            all_fc.extend(log2fc[np.isfinite(log2fc)].tolist())
+            all_neg.extend(neglog_p[np.isfinite(neglog_p)].tolist())
+        shared_x, shared_y = _limits(
+            np.asarray(all_fc, dtype=float),
+            np.asarray(all_neg, dtype=float),
+            cut_fc,
+            cut_p,
+            xlim,
+            ylim,
+        )
+    else:
+        shared_x, shared_y = xlim, ylim
+
+    n_panel = len(tables)
+    n_row = min(1 if panel_nrow is None else panel_nrow, n_panel)
+    n_col = int(np.ceil(n_panel / n_row))
+
+    fig = figure()
+    axes = fig.subplots(n_row, n_col, squeeze=False)
+    if main is not None:
+        fig.suptitle(main, fontsize=font(cex_main), fontweight="bold")
+        fig.subplots_adjust(top=0.88)
+
+    for index, (name, table) in enumerate(tables.items()):
+        row, column = divmod(index, n_col)
+        _volcano_one(
+            table,
+            use_adjusted,
+            cut_fc,
+            cut_p,
+            anno_feats,
+            anno_top,
+            cex_anno,
+            shared_x,
+            shared_y,
+            xlab,
+            name,
+            cex_lab,
+            cex_axis,
+            cex_main,
+            margins,
+            ax=axes[row][column],
+        )
+    for index in range(n_panel, n_row * n_col):
+        row, column = divmod(index, n_col)
+        axes[row][column].set_visible(False)
+
+
+def _naming_message(held: Any) -> str:
+    """What to say to a caller who handed over a whole contrast reading."""
     if isinstance(held, Mapping) and held:
         first = next(iter(held))
         return (
@@ -245,11 +421,7 @@ def _check_columns(table: pd.DataFrame, p_col: str) -> None:
 def _cutoffs(
     table: pd.DataFrame, log2fc_cutoff: float | None, pval_cutoff: float | None
 ) -> tuple[float, float]:
-    """The rule a plot draws its guides for.
-
-    Falling back to the recorded cutoffs is what keeps the guides on the plot and
-    the verdict in the table describing the same rule.
-    """
+    """The rule a plot draws its guides for."""
     if log2fc_cutoff is None:
         log2fc_cutoff = table.attrs.get("log2fc_cutoff")
     if pval_cutoff is None:
@@ -274,12 +446,7 @@ def _limits(
     xlim: tuple[float, float] | None,
     ylim: tuple[float, float] | None,
 ) -> tuple[tuple[float, float], tuple[float, float]]:
-    """Axis ranges wide enough for the points and the guides both.
-
-    Port of ``sa_volcano_lims()`` for a single table. A plot whose ranges are
-    both supplied is never asked whether it has anything finite to derive them
-    from.
-    """
+    """Axis ranges wide enough for the points and the guides both."""
     if xlim is not None and ylim is not None:
         return xlim, ylim
 
@@ -290,8 +457,6 @@ def _limits(
             "nothing can be plotted: no feature has both a finite `log2fc` and a finite -log10(p)."
         )
 
-    # A run where every p-value is 1 leaves the top at 0, which is not a usable
-    # axis, so the guide line height sets the floor.
     y_top = max(float(y_finite.max()), float(-np.log10(cut_p)), 1.0)
     x_max = max(float(np.abs(x_finite).max()), cut_fc)
     return (
@@ -303,11 +468,7 @@ def _limits(
 def _strongest(
     mask: np.ndarray, pvalue: np.ndarray, log2fc: np.ndarray, anno_top: int, up: bool
 ) -> np.ndarray:
-    """The features to label on one side.
-
-    Strongest first means smallest p-value, then largest fold change away from
-    zero in the direction concerned.
-    """
+    """The features to label on one side."""
     index = np.flatnonzero(mask)
     if index.size == 0:
         return index
@@ -317,19 +478,20 @@ def _strongest(
 
 
 def _xlab(table: pd.DataFrame) -> str:
-    """The x axis label a verdict table earns.
-
-    Port of ``sa_volcano_xlab()``. One reading does not compare two centres the
-    caller named, and saying so on the axis is what keeps it from being read as a
-    two-group plot: a multi-group omnibus verdict holds the level furthest from
-    the reference, and which level that is differs per feature. A contrast table
-    of the same comparison does compare a named pair, so it is left alone.
-    """
+    """The x axis label a verdict table earns."""
     plain = r"$\log_2$ FC"
+    term = table.attrs.get("term")
+    if term is not None:
+        return rf"$\log_2$ effect ({term})"
     if table.attrs.get("contrast") is not None:
         return plain
-    if table.attrs.get("analysis") != "multi_group_comparison":
+    analysis = table.attrs.get("analysis")
+    if analysis == "multi_group_comparison":
+        unit = "level"
+    elif analysis == "factorial_comparison":
+        unit = "cell"
+    else:
         return plain
     levels = table.attrs.get("group_lv") or []
     reference = str(levels[0]) if len(levels) > 0 else "reference"
-    return f"{plain} (most extreme level vs {reference})"
+    return f"{plain} (most extreme {unit} vs {reference})"

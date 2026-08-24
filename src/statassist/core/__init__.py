@@ -77,7 +77,7 @@ from .result import (
     new_significance,
     pick_test,
 )
-from .rstats import MAD_CONSTANT, mad
+from .rstats import MAD_CONSTANT, mad, r_mean
 from .tables import add_padj, feature_table, level_pairs, na_row, posthoc_table, stat_row
 from .validate import (
     UNSET,
@@ -192,6 +192,7 @@ __all__ = [
     "posthoc_stat_columns",
     "posthoc_table",
     "posthoc_table_columns",
+    "r_mean",
     "resolve_row_vector",
     "stat_row",
     "term_table_columns",

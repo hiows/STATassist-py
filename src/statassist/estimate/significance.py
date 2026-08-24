@@ -58,16 +58,19 @@ def estimate_significance(
         by: Which p-value the verdict is read from. ``"omnibus"`` uses the named
             test's own table. ``"contrast"`` uses the pairwise stage of a
             multi-group comparison and returns one verdict table per contrast.
+            ``"term"`` uses the ``terms`` table of a factorial comparison and
+            returns one verdict table per model term, with ``log2fc`` taken from
+            that term's ``log2_effect``.
 
     Returns:
         A :class:`~statassist.core.result.SaSignificance`. Its ``significance``
         is one table with ``features``, ``log2fc``, ``pvalue``, ``adj_pvalue``
         and ``is_signif`` - a multi-group omnibus table also carries
-        ``extreme_level`` - or, under ``by="contrast"``, a mapping of those
-        tables keyed by contrast. The cutoffs, the test and the adjustment
-        actually used are in each table's ``attrs``, which is where
-        ``draw_volcano_plot()`` picks them up so that a plotted guide cannot
-        disagree with the verdict.
+        ``extreme_level``, a factorial one ``extreme_cell`` - or, under
+        ``by="contrast"`` / ``by="term"``, a mapping of those tables keyed by
+        contrast or term. The cutoffs, the test and the adjustment actually used
+        are in each table's ``attrs``, which is where ``draw_volcano_plot()``
+        picks them up so that a plotted guide cannot disagree with the verdict.
 
     Raises:
         SaValueError: If an argument is unusable, or if the reading asked for
@@ -100,6 +103,16 @@ def estimate_significance(
         Tukey's HSD and Games-Howell, whose p-values are already family-wise.
         Naming a method instead adjusts across the features within each
         contrast, which is the axis ``by="omnibus"`` always works on.
+
+        Under ``by="term"``, the verdict's ``log2fc`` column is the term's
+        ``log2_effect``, not a fold change. It is a signed ANOVA component
+        (deviation from the rest of the model), so red/blue on a term volcano is
+        not the same up/down question as omnibus ``effect["log2fc"]`` or a
+        two-group fold change. For two-level terms the components ``-d/2`` and
+        ``+d/2`` tie in absolute value; Python keeps the earlier cell when they
+        are within ``FACT_TOL``, while CRAN R may still select the opposite sign
+        of the same magnitude until it gains the same near-tie rule.
+        ``abs(log2fc)``, p-values and ``is_signif`` remain comparable.
 
     Examples:
         >>> from statassist import compare_two_groups, simulate_two_groups
@@ -141,12 +154,9 @@ def estimate_significance(
     table = pick_test(comparison_result, test, arg="comparison_result")
 
     if by == "term":
-        # Scenario 1 has no term axis to read: every comparison it can build has
-        # a single term, and that question is what `by = "omnibus"` answers.
-        raise SaValueError(
-            '`by = "term"` needs a term axis, which compare_factorial_groups() '
-            "is the one scenario that builds. It is not part of this port yet; a "
-            'design with a single factor reads out through `by = "omnibus"`.'
+        return new_significance(
+            comparison_result["analysis"],
+            _by_term(comparison_result, test, adj_type, log2fc_cutoff, pval_cutoff),
         )
 
     if by == "contrast":
@@ -178,7 +188,9 @@ def estimate_significance(
     )
     # Which level or cell produced `log2fc` is not the same question in every
     # scenario, so the column is added where there is one to name.
-    if comparison_result["analysis"] == "multi_group_comparison":
+    if comparison_result["analysis"] == "factorial_comparison":
+        out["extreme_cell"] = list(effect["extreme_cell"])
+    elif comparison_result["analysis"] == "multi_group_comparison":
         out["extreme_level"] = list(effect["extreme_level"])
 
     out.attrs.update(_verdict_attrs(comparison_result, test, adj_used, log2fc_cutoff, pval_cutoff))
@@ -279,7 +291,8 @@ def _by_contrast(
             '`by = "contrast"` needs a pairwise stage, and '
             f"`comparison_result['pairwise'][{test!r}]` is absent. "
             "compare_multiple_groups() is the one scenario that builds it, and "
-            "only when `posthoc = True`."
+            "only when `posthoc = True`; a factorial comparison keeps its "
+            "contrasts in `posthoc` alone."
         )
 
     out: dict[str, pd.DataFrame] = {}
@@ -313,4 +326,63 @@ def _by_contrast(
             }
         )
         out[str(contrast)] = verdict
+    return out
+
+
+def _by_term(
+    comparison_result: Any,
+    test: str,
+    adj_type: str | None,
+    log2fc_cutoff: float,
+    pval_cutoff: float,
+) -> dict[str, pd.DataFrame]:
+    """One verdict table per model term.
+
+    Port of ``sa_significance_by_term()``. The factorial counterpart of
+    :func:`_by_contrast`, and the same shape: a named mapping of verdict tables,
+    in the order ``terms`` lists the terms (main effects first, then
+    interactions).
+    """
+    terms_tbl = comparison_result.get("terms") if "terms" in comparison_result else None
+    if terms_tbl is None or len(terms_tbl.index) == 0:
+        raise SaValueError(
+            '`by = "term"` needs a term axis, and `comparison_result["terms"]` is '
+            "absent. compare_factorial_groups() is the one scenario that builds "
+            "it; a design with a single factor has one term and reads out through "
+            '`by = "omnibus"`.'
+        )
+
+    labels = list(dict.fromkeys(str(name) for name in terms_tbl["terms"]))
+    out: dict[str, pd.DataFrame] = {}
+    for label in labels:
+        table = terms_tbl.loc[terms_tbl["terms"].astype(str) == label]
+        pvalue = check_pvalues(table["pval"].to_numpy(dtype=float))
+        # Both branches adjust along the feature axis within one term, so unlike
+        # the contrast reading there is no second family to choose between:
+        # naming a method changes the method and nothing else.
+        if adj_type is None:
+            adj_pvalue = table["pval_adj"].to_numpy(dtype=float)
+            adj_used = comparison_result["parameters"].get("p_adjust")
+        else:
+            adj_pvalue = adjust(pvalue, adj_type)
+            adj_used = adj_type
+
+        verdict = _verdict_table(
+            table["features"],
+            table["log2_effect"].to_numpy(dtype=float),
+            pvalue,
+            adj_pvalue,
+            log2fc_cutoff,
+            pval_cutoff,
+        )
+        verdict.attrs.update(
+            _verdict_attrs(comparison_result, test, adj_used, log2fc_cutoff, pval_cutoff)
+        )
+        verdict.attrs.update(
+            {
+                "term": label,
+                "term_order": int(table["term_order"].iloc[0]),
+            }
+        )
+        out[label] = verdict
     return out

@@ -21,6 +21,7 @@ from __future__ import annotations
 from .butterfly import BUTTERFLY_SCALES, BUTTERFLY_TYPES, draw_butterfly_hist
 from .forest import FOREST_VIEWS, draw_forest_plot
 from .heatmap import HCLUST_METHODS, HEATMAP_SCALES, Clustering, draw_heatmap
+from .interaction import INTERACTION_VIEWS, draw_interaction_plot
 from .volcano import draw_volcano_plot
 
 __all__ = [
@@ -29,9 +30,11 @@ __all__ = [
     "FOREST_VIEWS",
     "HCLUST_METHODS",
     "HEATMAP_SCALES",
+    "INTERACTION_VIEWS",
     "Clustering",
     "draw_butterfly_hist",
     "draw_forest_plot",
     "draw_heatmap",
+    "draw_interaction_plot",
     "draw_volcano_plot",
 ]

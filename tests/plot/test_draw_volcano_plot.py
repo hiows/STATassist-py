@@ -197,3 +197,18 @@ class TestArgumentChecks:
         _, _, sig = _verdict()
         draw_volcano_plot(sig, use_adjusted=False)
         assert "adjusted" not in plt.gcf().axes[0].get_ylabel()
+
+
+class TestTermPanels:
+    def test_a_term_reading_draws_one_panel_per_default_term(self):
+        import matplotlib.pyplot as plt
+
+        from statassist import compare_factorial_groups, simulate_factorial_groups
+
+        sim = simulate_factorial_groups(n_feats=6, n_per_cell=5, seed=21)
+        res = compare_factorial_groups(**sim.args, diagnose=False)
+        sig = estimate_significance(res, by="term", log2fc_cutoff=0.25)
+        draw_volcano_plot(sig, main="by term")
+        # Two mains + interaction for a two-factor design.
+        assert len([ax for ax in plt.gcf().axes if ax.has_data() or ax.get_title()]) >= 3
+        plt.close("all")

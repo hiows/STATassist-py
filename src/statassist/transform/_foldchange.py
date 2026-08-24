@@ -31,6 +31,7 @@ import numpy as np
 import pandas as pd
 
 from ..core.errors import SaValueError, notify
+from ..core.rstats import r_mean
 from ..core.tables import feature_table, stat_row
 from ..core.validate import UNSET
 
@@ -107,7 +108,9 @@ def fc_center(
             )
 
     if mean_type == "arith":
-        return float(np.mean(values))
+        # R's mean(): an ULP here decides the sign of a two-level term's
+        # log2_effect once the centres are decomposed. See r_mean.
+        return r_mean(values)
 
     # Dropping the non-positive values instead would silently return the
     # geometric mean of the positive subset, which is a different quantity.
@@ -117,7 +120,7 @@ def fc_center(
             f"the geometric mean is undefined for the {n_low} value(s) at or "
             f'below zero in the {side} group; use `fc_mean = "arith"` instead.'
         )
-    return float(np.exp(np.mean(np.log(values))))
+    return float(np.exp(r_mean(np.log(values))))
 
 
 def fold_change(

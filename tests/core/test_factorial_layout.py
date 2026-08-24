@@ -15,6 +15,7 @@ from golden import as_list, assert_close, assert_frame_close, load_expected
 from statassist.core.errors import SaValueError
 from statassist.core.factorial import (
     FACT_TOL,
+    _first_max_abs,
     fact_cell_index,
     fact_cell_labels,
     fact_collapse,
@@ -219,6 +220,9 @@ class TestComponent:
 
 class TestTermEffect:
     def test_matches_r(self):
+        # term_effect signs follow FACT_TOL near-ties (earlier cell), which is
+        # the rule CRAN R's which.max does not yet apply; the golden was updated
+        # for that contract. Collapse / component vectors still match R.
         expected = load_expected("fact_decompose")
         cells = fact_grid(FACT_LV)
         terms = fact_terms(list(FACT_LV))
@@ -243,6 +247,24 @@ class TestTermEffect:
         cells = fact_grid(levels)
         produced = fact_term_effect([0.0, 4.0], cells, fact_terms(list(levels)))
         assert produced[0] == pytest.approx(-2.0)
+
+    def test_a_near_tie_broken_by_an_ulp_still_takes_the_earlier_cell(self):
+        # Later magnitude wins under nanargmax; FACT_TOL keeps the earlier index.
+        assert _first_max_abs(np.array([-0.5, 0.5 + 1e-15])) == 0
+        produced = fact_term_effect(
+            [0.0, 4.0 + np.finfo(float).eps],
+            fact_grid({"f": ["lo", "hi"]}),
+            fact_terms(["f"]),
+        )
+        assert produced[0] == pytest.approx(-2.0)
+
+    def test_a_clear_winner_is_not_treated_as_a_tie(self):
+        assert _first_max_abs(np.array([-0.3, 0.5])) == 1
+        levels = {"f": ["a", "b", "c"]}
+        cells = fact_grid(levels)
+        produced = fact_term_effect([0.0, 1.0, 10.0], cells, fact_terms(list(levels)))
+        # Grand mean 11/3; the last cell is furthest and positive.
+        assert produced[0] == pytest.approx(10.0 - 11.0 / 3.0)
 
     def test_a_component_of_nothing_but_missing_values_is_missing(self):
         cells = fact_grid(FACT_LV)

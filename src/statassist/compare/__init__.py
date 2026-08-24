@@ -11,8 +11,14 @@ and the plots - without either side knowing which tests were actually run.
 
 from __future__ import annotations
 
+from .factorial_groups import compare_factorial_groups
 from .multiple_groups import compare_multiple_groups
 from .one_sample import compare_one_sample
 from .two_groups import compare_two_groups
 
-__all__ = ["compare_multiple_groups", "compare_one_sample", "compare_two_groups"]
+__all__ = [
+    "compare_factorial_groups",
+    "compare_multiple_groups",
+    "compare_one_sample",
+    "compare_two_groups",
+]

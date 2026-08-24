@@ -14,13 +14,19 @@ feature reads as once the control group is taken out of it.
 
 __version__ = "0.1.0.dev0"
 
-from .compare import compare_multiple_groups, compare_one_sample, compare_two_groups
+from .compare import (
+    compare_factorial_groups,
+    compare_multiple_groups,
+    compare_one_sample,
+    compare_two_groups,
+)
 from .diagnose import diagnose_distribution, screen_outliers
 from .estimate import estimate_significance
 from .plot import (
     draw_butterfly_hist,
     draw_forest_plot,
     draw_heatmap,
+    draw_interaction_plot,
     draw_volcano_plot,
 )
 from .simulate import (
@@ -39,6 +45,7 @@ from .transform import center_by_control
 __all__ = [
     "__version__",
     "center_by_control",
+    "compare_factorial_groups",
     "compare_multiple_groups",
     "compare_one_sample",
     "compare_two_groups",
@@ -46,6 +53,7 @@ __all__ = [
     "draw_butterfly_hist",
     "draw_forest_plot",
     "draw_heatmap",
+    "draw_interaction_plot",
     "draw_volcano_plot",
     "estimate_significance",
     "make_block_cor",
