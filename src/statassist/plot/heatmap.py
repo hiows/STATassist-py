@@ -38,6 +38,7 @@ from ._theme import figure, font
 __all__ = [
     "HCLUST_METHODS",
     "HEATMAP_SCALES",
+    "LINKAGE_NAMES",
     "Clustering",
     "draw_heatmap",
 ]
@@ -49,7 +50,10 @@ HEATMAP_SCALES = ("feature", "sample", "none")
 HCLUST_METHODS = ("average", "complete", "ward.D2")
 
 #: What each of them is called in :func:`scipy.cluster.hierarchy.linkage`.
-_LINKAGE_NAMES = {"average": "average", "complete": "complete", "ward.D2": "ward"}
+#:
+#: Shared with :func:`~statassist.draw_corrplot`, which clusters its own matrix
+#: before handing it here and has to reach the same tree by the same name.
+LINKAGE_NAMES = {"average": "average", "complete": "complete", "ward.D2": "ward"}
 
 #: The diverging ramp, blue through white to red. Its middle is a meaningful
 #: value rather than a colour choice, which is what ``zlim`` is made symmetric
@@ -420,7 +424,7 @@ def _hclust(
             "kept."
         )
         return None
-    tree = linkage(distances, method=_LINKAGE_NAMES[hclust_method])
+    tree = linkage(distances, method=LINKAGE_NAMES[hclust_method])
     order = dendrogram(tree, no_plot=True)["leaves"]
     return Clustering(
         linkage=tree,

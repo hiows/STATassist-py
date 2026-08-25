@@ -200,15 +200,89 @@ class TestArgumentChecks:
 
 
 class TestTermPanels:
-    def test_a_term_reading_draws_one_panel_per_default_term(self):
-        import matplotlib.pyplot as plt
-
+    @staticmethod
+    def _term_sig():
         from statassist import compare_factorial_groups, simulate_factorial_groups
 
         sim = simulate_factorial_groups(n_feats=6, n_per_cell=5, seed=21)
         res = compare_factorial_groups(**sim.args, diagnose=False)
-        sig = estimate_significance(res, by="term", log2fc_cutoff=0.25)
+        return estimate_significance(res, by="term", log2fc_cutoff=0.25)
+
+    def test_a_term_reading_draws_one_panel_per_default_term(self):
+        import matplotlib.pyplot as plt
+
+        sig = self._term_sig()
         draw_volcano_plot(sig, main="by term")
         # Two mains + interaction for a two-factor design.
         assert len([ax for ax in plt.gcf().axes if ax.has_data() or ax.get_title()]) >= 3
         plt.close("all")
+
+    def test_term_panels_use_a_magnitude_axis_from_zero(self):
+        import matplotlib.pyplot as plt
+
+        draw_volcano_plot(self._term_sig())
+        for ax in plt.gcf().axes:
+            if not (ax.has_data() or ax.get_title()):
+                continue
+            low, high = ax.get_xlim()
+            assert low == pytest.approx(0.0)
+            assert high > 0
+        plt.close("all")
+
+    def test_term_panels_draw_one_vertical_guide(self):
+        import matplotlib.pyplot as plt
+
+        draw_volcano_plot(self._term_sig())
+        for ax in plt.gcf().axes:
+            if not (ax.has_data() or ax.get_title()):
+                continue
+            vertical = [line for line in ax.lines if line.get_xdata()[0] == line.get_xdata()[1]]
+            assert len(vertical) == 1
+        plt.close("all")
+
+    def test_term_significant_points_are_black_and_labels_stay_red(self):
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import to_rgba
+
+        from statassist.plot.volcano import MAG_COLOR, UP_COLOR
+
+        sig = self._term_sig()
+        draw_volcano_plot(sig, anno_top=5)
+        black = to_rgba(MAG_COLOR)
+        for ax in plt.gcf().axes:
+            if not (ax.has_data() or ax.get_title()):
+                continue
+            for collection in ax.collections:
+                drawn = collection.get_facecolor()
+                if drawn.size and np.allclose(drawn[0], black):
+                    break
+            else:
+                # No significant hits on this panel is fine; up/down red/blue must
+                # not appear as the significance colour.
+                for collection in ax.collections:
+                    drawn = collection.get_facecolor()
+                    if drawn.size:
+                        assert not np.allclose(drawn[0], to_rgba(UP_COLOR))
+            for text in ax.texts:
+                if text.get_text():
+                    assert to_rgba(text.get_color()) == to_rgba("red")
+        plt.close("all")
+
+    def test_term_xlab_names_an_absolute_effect(self):
+        import matplotlib.pyplot as plt
+
+        sig = self._term_sig()
+        first = next(iter(sig["significance"]))
+        draw_volcano_plot(sig["significance"][first])
+        label = plt.gcf().axes[0].get_xlabel()
+        assert "effect" in label
+        assert first in label
+        assert "FC" not in label
+        plt.close("all")
+
+    def test_a_term_table_missing_log2_effect_names_itself(self):
+        sig = self._term_sig()
+        first = next(iter(sig["significance"]))
+        stripped = sig["significance"][first].drop(columns=["log2_effect"])
+        with pytest.raises(SaValueError, match="log2_effect"):
+            draw_volcano_plot(stripped)

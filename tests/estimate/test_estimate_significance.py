@@ -342,13 +342,21 @@ class TestFactorial:
         assert first.attrs["term"] == next(iter(verdict.significance))
         assert "term_order" in first.attrs
 
-    def test_term_log2fc_comes_from_log2_effect(self, factorial):
+    def test_term_table_carries_log2_effect_not_log2fc(self, factorial):
         _, res = factorial
         verdict = estimate_significance(res, by="term", log2fc_cutoff=0.25)
         term = next(iter(verdict.significance))
         table = verdict.significance[term]
+        assert list(table.columns) == [
+            "features",
+            "log2_effect",
+            "pvalue",
+            "adj_pvalue",
+            "is_signif",
+        ]
+        assert "log2fc" not in table.columns
         expected = res.terms.loc[res.terms["terms"] == term, "log2_effect"].to_numpy()
-        assert_close(list(table["log2fc"]), list(expected))
+        assert_close(list(table["log2_effect"]), list(expected))
 
     def test_contrast_reading_is_refused_for_factorial(self, factorial):
         _, res = factorial
@@ -359,5 +367,6 @@ class TestFactorial:
         _, res = factorial
         text = repr(estimate_significance(res, by="term", log2fc_cutoff=0.25))
         assert "one table per term" in text
+        assert "abs(log2_effect) >= 0.25" in text
         for term in dict.fromkeys(res.terms["terms"]):
             assert term in text

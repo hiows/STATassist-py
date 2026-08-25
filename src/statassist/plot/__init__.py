@@ -18,22 +18,32 @@ Two conventions hold throughout:
 
 from __future__ import annotations
 
+from .barplot import BAR_ERRORBARS, BAR_HEIGHTS, draw_grouped_barplot
+from .boxplot import BOX_PANEL_AXES, draw_grouped_boxplot
 from .butterfly import BUTTERFLY_SCALES, BUTTERFLY_TYPES, draw_butterfly_hist
+from .corrplot import CORR_LIMITS, draw_corrplot
 from .forest import FOREST_VIEWS, draw_forest_plot
 from .heatmap import HCLUST_METHODS, HEATMAP_SCALES, Clustering, draw_heatmap
 from .interaction import INTERACTION_VIEWS, draw_interaction_plot
 from .volcano import draw_volcano_plot
 
 __all__ = [
+    "BAR_ERRORBARS",
+    "BAR_HEIGHTS",
+    "BOX_PANEL_AXES",
     "BUTTERFLY_SCALES",
     "BUTTERFLY_TYPES",
+    "CORR_LIMITS",
     "FOREST_VIEWS",
     "HCLUST_METHODS",
     "HEATMAP_SCALES",
     "INTERACTION_VIEWS",
     "Clustering",
     "draw_butterfly_hist",
+    "draw_corrplot",
     "draw_forest_plot",
+    "draw_grouped_barplot",
+    "draw_grouped_boxplot",
     "draw_heatmap",
     "draw_interaction_plot",
     "draw_volcano_plot",

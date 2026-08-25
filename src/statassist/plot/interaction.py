@@ -11,13 +11,12 @@ from typing import Any, cast
 
 import numpy as np
 import pandas as pd
-from matplotlib import colormaps
 from scipy import stats
 
 from ..core.errors import SaValueError, notify
 from ..core.result import SaFactorial
 from ..core.validate import check_count, check_feat_names, check_flag, check_lim, check_scalar_num
-from ._theme import figure, font, theme
+from ._theme import figure, font, group_colors, theme
 
 __all__ = ["INTERACTION_VIEWS", "draw_interaction_plot"]
 
@@ -447,15 +446,6 @@ def _inter_main(
     return f"{panels[0]['tbl']['features'].iloc[0]}: {head}"
 
 
-def _inter_cols(col: Any, n: int) -> list[str]:
-    """Colours for the levels of a tracing factor."""
-    if col is None:
-        cmap = colormaps["Dark2"]
-        return [cmap(index / max(n, 1)) for index in range(n)]  # type: ignore[misc]
-    held = list(col) if not isinstance(col, str) else [col]
-    return [held[index % len(held)] for index in range(n)]
-
-
 def _inter_draw(
     panels: Sequence[dict[str, Any]],
     drawn: pd.DataFrame,
@@ -553,7 +543,7 @@ def _inter_draw(
             panel["x"] if xlab is None else xlab,
             ylab if y_annot else "",
             None if outer_main else figure_main,
-            _inter_cols(col, len(factor_lv[panel["trace"]])),
+            group_colors(col, len(factor_lv[panel["trace"]])),
             lwd,
             errorbar,
             look,
@@ -572,7 +562,7 @@ def _inter_draw(
         legend_ax.set_axis_off()
         legend_ax.set_facecolor(look.bg)
         trace_lv = list(factor_lv[str(roles["trace"])])
-        colours = _inter_cols(col, len(trace_lv))
+        colours = group_colors(col, len(trace_lv))
         handles = [
             plt.Line2D(
                 [0],

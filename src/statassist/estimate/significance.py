@@ -46,8 +46,10 @@ def estimate_significance(
         test: Which test supplies the p-values, one of
             ``comparison_result.tests``. ``None`` takes the first test the
             scenario ran, which is the parametric one in every scenario.
-        log2fc_cutoff: Smallest ``abs(log2fc)`` required to call a feature
-            significant. The default of 1 is a two-fold change.
+        log2fc_cutoff: Smallest absolute effect size required to call a feature
+            significant. Under ``by="omnibus"`` and ``by="contrast"`` that is
+            ``abs(log2fc)``; under ``by="term"`` it is ``abs(log2_effect)``. The
+            default of 1 is a two-fold change on a fold-change axis.
         pval_cutoff: Largest ``adj_pvalue`` allowed for a feature to be called
             significant.
         adj_type: Multiplicity adjustment. ``None`` reuses the ``pval_adj``
@@ -59,17 +61,18 @@ def estimate_significance(
             test's own table. ``"contrast"`` uses the pairwise stage of a
             multi-group comparison and returns one verdict table per contrast.
             ``"term"`` uses the ``terms`` table of a factorial comparison and
-            returns one verdict table per model term, with ``log2fc`` taken from
-            that term's ``log2_effect``.
+            returns one verdict table per model term, each carrying that term's
+            own effect size in ``log2_effect`` rather than ``log2fc``.
 
     Returns:
         A :class:`~statassist.core.result.SaSignificance`. Its ``significance``
         is one table with ``features``, ``log2fc``, ``pvalue``, ``adj_pvalue``
         and ``is_signif`` - a multi-group omnibus table also carries
         ``extreme_level``, a factorial one ``extreme_cell`` - or, under
-        ``by="contrast"`` / ``by="term"``, a mapping of those tables keyed by
-        contrast or term. The cutoffs, the test and the adjustment actually used
-        are in each table's ``attrs``, which is where ``draw_volcano_plot()``
+        ``by="contrast"``, a mapping of those tables keyed by contrast. Under
+        ``by="term"``, a mapping of tables keyed by term with ``log2_effect`` in
+        place of ``log2fc``. The cutoffs, the test and the adjustment actually
+        used are in each table's ``attrs``, which is where ``draw_volcano_plot()``
         picks them up so that a plotted guide cannot disagree with the verdict.
 
     Raises:
@@ -77,17 +80,19 @@ def estimate_significance(
             has no axis in this comparison.
 
     Notes:
-        ``is_signif`` combines ``abs(log2fc) >= log2fc_cutoff`` with
-        ``adj_pvalue <= pval_cutoff`` and is therefore judged on the adjusted
-        p-values. Pass ``adj_type="none"`` to test the raw ones.
+        ``is_signif`` combines the absolute effect size against
+        ``log2fc_cutoff`` with ``adj_pvalue <= pval_cutoff`` and is therefore
+        judged on the adjusted p-values. Pass ``adj_type="none"`` to test the
+        raw ones. The effect column is ``log2fc`` except under ``by="term"``,
+        where it is ``log2_effect``.
 
-        The verdict is three-valued, as R's is. A feature whose ``log2fc`` is
-        ``NaN`` - which is what two centres of opposite sign produce - or whose
-        p-value is missing is undecided rather than decided against, unless the
-        magnitude cutoff already rules it out, which makes it ``False`` whatever
-        the p-value would have been. A fold change of exactly zero is a
-        different matter: ``log2fc`` is ``-inf``, an infinitely large decrease,
-        and it clears any magnitude cutoff.
+        The verdict is three-valued, as R's is. A feature whose effect is
+        ``NaN`` - which is what two centres of opposite sign produce for a fold
+        change - or whose p-value is missing is undecided rather than decided
+        against, unless the magnitude cutoff already rules it out, which makes
+        it ``False`` whatever the p-value would have been. A fold change of
+        exactly zero is a different matter: ``log2fc`` is ``-inf``, an
+        infinitely large decrease, and it clears any magnitude cutoff.
 
         The two ways of reading a multi-group comparison answer different
         questions. ``by="omnibus"`` asks whether a feature differs across the
@@ -104,15 +109,14 @@ def estimate_significance(
         Naming a method instead adjusts across the features within each
         contrast, which is the axis ``by="omnibus"`` always works on.
 
-        Under ``by="term"``, the verdict's ``log2fc`` column is the term's
-        ``log2_effect``, not a fold change. It is a signed ANOVA component
-        (deviation from the rest of the model), so red/blue on a term volcano is
-        not the same up/down question as omnibus ``effect["log2fc"]`` or a
-        two-group fold change. For two-level terms the components ``-d/2`` and
-        ``+d/2`` tie in absolute value; Python keeps the earlier cell when they
-        are within ``FACT_TOL``, while CRAN R may still select the opposite sign
-        of the same magnitude until it gains the same near-tie rule.
-        ``abs(log2fc)``, p-values and ``is_signif`` remain comparable.
+        Under ``by="term"``, the verdict carries ``log2_effect``, the same ANOVA
+        component ``terms["log2_effect"]`` holds, rather than a ratio of two
+        centres renamed to ``log2fc``. It measures a deviation from what the
+        rest of the model predicts, so a two-level factor whose levels differ by
+        one log2 unit contributes -0.5 and +0.5 rather than 1. The default
+        ``log2fc_cutoff=1`` is therefore a stricter demand here than the same
+        number is elsewhere. ``draw_volcano_plot()`` plots ``|log2_effect|`` on
+        that axis, so a term panel has no up/down colouring.
 
     Examples:
         >>> from statassist import compare_two_groups, simulate_two_groups
@@ -223,16 +227,19 @@ def _verdict_attrs(
 
 def _verdict_table(
     features: Sequence[str],
-    log2fc: np.ndarray,
+    effect: np.ndarray,
     pvalue: np.ndarray,
     adj_pvalue: np.ndarray,
     log2fc_cutoff: float,
     pval_cutoff: float,
+    effect_col: str = "log2fc",
 ) -> pd.DataFrame:
     """The verdict table both readings of a comparison produce.
 
     Port of ``sa_significance_table()``. Shared so that the two axes and the rule
     combining them cannot drift apart between the omnibus and the contrast paths.
+    ``effect_col`` is ``"log2fc"`` for those paths and ``"log2_effect"`` for a
+    term reading.
 
     ``is_signif`` is a nullable boolean rather than a plain one, which is what
     reproduces R's three-valued ``&``: a missing magnitude and a ``False``
@@ -242,12 +249,17 @@ def _verdict_table(
     out = pd.DataFrame(
         {
             "features": [str(name) for name in features],
-            "log2fc": log2fc,
             "pvalue": pvalue,
             "adj_pvalue": adj_pvalue,
         }
     )
-    out["is_signif"] = _at_least(np.abs(log2fc), log2fc_cutoff) & _at_most(adj_pvalue, pval_cutoff)
+    out[effect_col] = effect
+    # Keep the effect column between features and pvalue, matching the historical
+    # column order of the fold-change reading.
+    out = out[["features", effect_col, "pvalue", "adj_pvalue"]]
+    out["is_signif"] = _at_least(np.abs(effect), log2fc_cutoff) & _at_most(
+        adj_pvalue, pval_cutoff
+    )
     return out
 
 
@@ -374,6 +386,7 @@ def _by_term(
             adj_pvalue,
             log2fc_cutoff,
             pval_cutoff,
+            effect_col="log2_effect",
         )
         verdict.attrs.update(
             _verdict_attrs(comparison_result, test, adj_used, log2fc_cutoff, pval_cutoff)

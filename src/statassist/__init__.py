@@ -24,7 +24,10 @@ from .diagnose import diagnose_distribution, screen_outliers
 from .estimate import estimate_significance
 from .plot import (
     draw_butterfly_hist,
+    draw_corrplot,
     draw_forest_plot,
+    draw_grouped_barplot,
+    draw_grouped_boxplot,
     draw_heatmap,
     draw_interaction_plot,
     draw_volcano_plot,
@@ -51,7 +54,10 @@ __all__ = [
     "compare_two_groups",
     "diagnose_distribution",
     "draw_butterfly_hist",
+    "draw_corrplot",
     "draw_forest_plot",
+    "draw_grouped_barplot",
+    "draw_grouped_boxplot",
     "draw_heatmap",
     "draw_interaction_plot",
     "draw_volcano_plot",

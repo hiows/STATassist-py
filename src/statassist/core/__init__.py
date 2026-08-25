@@ -49,6 +49,7 @@ from .errors import (
 from .factorial import (
     FACT_TOL,
     ContrastSkeleton,
+    FactLayout,
     fact_cell_index,
     fact_cell_labels,
     fact_collapse,
@@ -56,6 +57,7 @@ from .factorial import (
     fact_contrast_skeleton,
     fact_control_first,
     fact_grid,
+    fact_layout,
     fact_subsets,
     fact_term_effect,
     fact_term_labels,
@@ -76,6 +78,7 @@ from .result import (
     new_comparison,
     new_significance,
     pick_test,
+    verdict_effect_col,
 )
 from .rstats import MAD_CONSTANT, mad, r_mean
 from .tables import add_padj, feature_table, level_pairs, na_row, posthoc_table, stat_row
@@ -121,6 +124,7 @@ __all__ = [
     "Alignment",
     "CategoricalInput",
     "ContrastSkeleton",
+    "FactLayout",
     "Pairing",
     "RowVector",
     "SaComparison",
@@ -170,6 +174,7 @@ __all__ = [
     "fact_contrast_skeleton",
     "fact_control_first",
     "fact_grid",
+    "fact_layout",
     "fact_subsets",
     "fact_term_effect",
     "fact_term_labels",
@@ -199,4 +204,5 @@ __all__ = [
     "test_table_columns",
     "validate_categorical_input",
     "validate_wide_input",
+    "verdict_effect_col",
 ]

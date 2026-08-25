@@ -158,6 +158,30 @@ def _verdict(**overrides: object) -> pd.DataFrame:
     return table
 
 
+def _term_verdict() -> pd.DataFrame:
+    table = pd.DataFrame(
+        {
+            "features": FEATS,
+            "log2_effect": [0.8, -0.1],
+            "pvalue": [0.001, 0.40],
+            "adj_pvalue": [0.002, 0.40],
+            "is_signif": pd.array([True, False], dtype="boolean"),
+        }
+    )
+    table.attrs = {
+        "analysis": "factorial_comparison",
+        "group_lv": ["A.L", "A.M", "B.L", "B.M"],
+        "test": "anova_test",
+        "test_label": "Two-way ANOVA",
+        "adj_type": "BH",
+        "log2fc_cutoff": 1.0,
+        "pval_cutoff": 0.05,
+        "term": "dose",
+        "term_order": 1,
+    }
+    return table
+
+
 class TestNewSignificance:
     def test_the_two_slots_are_the_ones_r_has(self) -> None:
         res = new_significance("two_group_comparison", _verdict())
@@ -204,6 +228,19 @@ class TestNewSignificance:
         res = new_significance("multi_group_comparison", table)
         assert list(res["significance"].columns)[-1] == "extreme_level"
 
+    def test_a_term_table_may_carry_log2_effect_instead_of_log2fc(self) -> None:
+        table = _term_verdict()
+        res = new_significance("factorial_comparison", {"wool": table})
+        held = res["significance"]["wool"]
+        assert list(held.columns) == [
+            "features",
+            "log2_effect",
+            "pvalue",
+            "adj_pvalue",
+            "is_signif",
+        ]
+        assert "log2fc" not in held.columns
+
 
 class TestSaSignificanceRepr:
     def test_it_reports_the_rule_and_the_count(self) -> None:
@@ -231,9 +268,10 @@ class TestSaSignificanceRepr:
             new_significance("multi_group_comparison", by_contrast)
         )
 
-        by_term = {"dose": _verdict()}
-        by_term["dose"].attrs["term"] = "dose"
-        assert "one table per term" in repr(new_significance("factorial_comparison", by_term))
+        by_term = {"dose": _term_verdict()}
+        text = repr(new_significance("factorial_comparison", by_term))
+        assert "one table per term" in text
+        assert "abs(log2_effect) >= 1" in text
 
 
 class TestPickTest:

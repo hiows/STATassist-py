@@ -9,19 +9,17 @@ test side by side.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, NamedTuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from ..core.contracts import cell_table_columns, posthoc_table_columns
+from ..core.contracts import posthoc_table_columns
 from ..core.errors import SaValueError, notify, warn
 from ..core.factorial import (
-    fact_cell_index,
-    fact_cell_labels,
+    FactLayout,
     fact_contrast_skeleton,
-    fact_control_first,
-    fact_grid,
+    fact_layout,
     fact_term_effect,
 )
 from ..core.padjust import p_adjust
@@ -32,7 +30,6 @@ from ..core.validate import (
     check_flag,
     check_p_adjust,
     check_scalar_num,
-    resolve_row_vector,
     validate_wide_input,
 )
 from ..diagnose.distribution import diagnose_samples
@@ -52,23 +49,6 @@ __all__ = ["compare_factorial_groups"]
 
 #: Views the pairwise stage of a factorial model can cover.
 POSTHOC_SCOPES: tuple[str, ...] = ("both", "marginal", "simple")
-
-
-class FactLayout(NamedTuple):
-    """Where every observation sits in the crossed grid.
-
-    Port of what ``sa_fact_layout()`` returns.
-    """
-
-    factor_lv: dict[str, list[str]]
-    cells: pd.DataFrame
-    n_cells: int
-    cell_label: list[str]
-    cell_n: list[int]
-    rows_of_cell: list[np.ndarray]
-    n_empty_cells: int
-    n_dropped: int
-    anova_type: str
 
 
 def compare_factorial_groups(
@@ -189,7 +169,7 @@ def compare_factorial_groups(
     frame = validated.data
     names = list(validated.feats)
 
-    layout = _fact_layout(frame, factors, factor_lv, control_label)
+    layout = fact_layout(frame, factors, factor_lv, control_label)
     if layout.n_dropped > 0:
         notify(f"Dropped {layout.n_dropped} row(s) belonging to a level outside `factor_lv`.")
     if layout.n_empty_cells > 0:
@@ -323,18 +303,6 @@ def _model_row(fit: FactorialFit | None, error: str | None) -> dict[str, float]:
     return dict(fit.model)
 
 
-def _fact_anova_type(n_factors: int) -> str:
-    """Which ANOVA the number of factors makes this.
-
-    Port of ``sa_fact_anova_type()``.
-    """
-    if n_factors == 2:
-        return "two_way"
-    if n_factors == 3:
-        return "three_way"
-    return "factorial"
-
-
 def _fact_anova_label(anova_type: str, ss_type: str) -> str:
     """The readable name of the analysis that ran.
 
@@ -346,124 +314,6 @@ def _fact_anova_label(anova_type: str, ss_type: str) -> str:
         "factorial": "Factorial ANOVA",
     }
     return f"{titles[anova_type]} (Type {ss_type} sums of squares)"
-
-
-def _fact_layout(
-    data: pd.DataFrame,
-    factors: Any,
-    factor_lv: Any,
-    control_label: Any,
-) -> FactLayout:
-    """Resolve the crossed factors and lay the observations out in cells.
-
-    Port of ``sa_fact_layout()``.
-    """
-    if (
-        not isinstance(factors, Mapping)
-        or len(factors) < 2
-        or any(name is None or str(name) == "" for name in factors)
-        or len(set(str(name) for name in factors)) != len(factors)
-    ):
-        raise SaValueError(
-            "`factors` must be a named list of at least two crossed factors, each "
-            "entry a column name of `data` or one value per row of it. Use "
-            "compare_multiple_groups() for a single factor."
-        )
-
-    factor_names = [str(name) for name in factors]
-    taken = [name for name in factor_names if name in cell_table_columns()]
-    if taken:
-        raise SaValueError(
-            "`factors` may not name a factor after a column of the cell table: "
-            + ", ".join(taken)
-            + ". Reserved: "
-            + ", ".join(cell_table_columns())
-            + ". Rename the factor."
-        )
-
-    values: dict[str, pd.Series] = {}
-    for name in factor_names:
-        resolved = resolve_row_vector(factors[name], f"factors['{name}']", data, allow_na=True)
-        assert resolved.value is not None
-        values[name] = resolved.value
-
-    named_lv = factor_lv is not None
-    resolved_lv: dict[str, list[str]]
-    if not named_lv:
-        resolved_lv = {
-            name: sorted({str(level) for level in column.dropna().astype(str)})
-            for name, column in values.items()
-        }
-    else:
-        if not isinstance(factor_lv, Mapping) or set(str(name) for name in factor_lv) != set(
-            factor_names
-        ):
-            raise SaValueError(
-                "`factor_lv` must be a named list holding the levels of every "
-                "factor `factors` names, or NULL to take them from the data. "
-                "`factors` has: " + ", ".join(factor_names) + "."
-            )
-        # Declaration order is the term order and the Type I order.
-        order = [str(name) for name in factor_lv]
-        values = {name: values[name] for name in order}
-        factor_names = order
-        resolved_lv = {name: [str(level) for level in factor_lv[name]] for name in order}
-
-    for name in factor_names:
-        levels = resolved_lv[name]
-        if (
-            len(levels) < 2
-            or any(level is None or str(level) == "" for level in levels)
-            or len(set(levels)) != len(levels)
-        ):
-            raise SaValueError(
-                f"`factor_lv['{name}']` must be at least two distinct non-empty "
-                "level names, the first being the reference."
-            )
-        present = {str(level) for level in values[name].dropna().astype(str)}
-        absent = [level for level in levels if level not in present]
-        if absent:
-            raise SaValueError(
-                f"`factor_lv['{name}']` level(s) absent from `factors['{name}']`: "
-                + ", ".join(absent)
-                + "."
-            )
-        resolved_lv[name] = levels
-
-    resolved_lv = fact_control_first(
-        resolved_lv, control_label, "factor_lv" if named_lv else "factors"
-    )
-    factor_names = list(resolved_lv)
-
-    level_idx = np.full((len(data.index), len(factor_names)), np.nan)
-    for column, name in enumerate(factor_names):
-        lookup = {level: index for index, level in enumerate(resolved_lv[name])}
-        level_idx[:, column] = [
-            np.nan if pd.isna(value) else lookup.get(str(value), np.nan) for value in values[name]
-        ]
-    keep = ~np.isnan(level_idx).any(axis=1)
-
-    cells = fact_grid(resolved_lv)
-    n_cells = len(cells.index)
-    dims = [len(resolved_lv[name]) for name in factor_names]
-    cell_idx = fact_cell_index(level_idx[keep], dims)
-    kept_rows = np.flatnonzero(keep)
-    rows_of_cell: list[np.ndarray] = []
-    for cell in range(n_cells):
-        rows_of_cell.append(kept_rows[cell_idx == cell])
-
-    cell_n = [int(rows.size) for rows in rows_of_cell]
-    return FactLayout(
-        factor_lv=resolved_lv,
-        cells=cells,
-        n_cells=n_cells,
-        cell_label=fact_cell_labels(resolved_lv, cells),
-        cell_n=cell_n,
-        rows_of_cell=rows_of_cell,
-        n_empty_cells=sum(count == 0 for count in cell_n),
-        n_dropped=int((~keep).sum()),
-        anova_type=_fact_anova_type(len(resolved_lv)),
-    )
 
 
 def _fact_effect(

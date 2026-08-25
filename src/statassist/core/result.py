@@ -47,15 +47,35 @@ __all__ = [
     "new_comparison",
     "new_significance",
     "pick_test",
+    "verdict_effect_col",
 ]
 
-#: Columns of a verdict table, in order.
+#: Columns of an omnibus or contrast verdict table, in order.
 #:
 #: A multi-group omnibus table carries ``extreme_level`` and a factorial one
 #: ``extreme_cell`` after these, naming the level or cell whose centre produced
 #: ``log2fc``. Those are per-scenario additions rather than part of the contract
-#: every consumer may rely on, which is why they are not listed here.
+#: every consumer may rely on, which is why they are not listed here. A term
+#: table uses the same shape with ``log2_effect`` in place of ``log2fc``; see
+#: :func:`verdict_effect_col`.
 SIGNIFICANCE_COLUMNS = ("features", "log2fc", "pvalue", "adj_pvalue", "is_signif")
+
+
+def verdict_effect_col(table: pd.DataFrame) -> str:
+    """The effect-size column a verdict table carries.
+
+    Port of ``sa_verdict_effect_col()``. Term readings store the ANOVA component
+    under ``log2_effect``; every other reading keeps ``log2fc``.
+    ``draw_volcano_plot()`` and :class:`SaSignificance` both ask here so the
+    column they read cannot drift from the one the table was built with.
+
+    A table that still carries its ``term`` attribute is treated as a term
+    reading even after the effect column has been dropped, so the missing-
+    column message names ``log2_effect`` rather than falling back to ``log2fc``.
+    """
+    if "log2_effect" in table.columns or table.attrs.get("term") is not None:
+        return "log2_effect"
+    return "log2fc"
 
 
 def metadata() -> dict[str, str]:
@@ -611,10 +631,11 @@ class SaSignificance(SaResult):
         # pairwise stage adjusted nothing and the entry is absent rather than
         # "none".
         adj_used = attrs.get("adj_type") or "none"
+        effect_col = verdict_effect_col(first)
         lines = [
             f"<{type(self).__name__}> {self['analysis_type']}",
             f"  test     : {attrs.get('test')}  ({attrs.get('test_label')})",
-            f"  cutoffs  : abs(log2fc) >= {_fmt(attrs.get('log2fc_cutoff', float('nan')))}"
+            f"  cutoffs  : abs({effect_col}) >= {_fmt(attrs.get('log2fc_cutoff', float('nan')))}"
             f", adj_pvalue <= {_fmt(attrs.get('pval_cutoff', float('nan')))}  ({adj_used})",
         ]
 
@@ -666,7 +687,15 @@ def new_significance(
             raise SaInternalError("internal error: `significance` must hold at least one table.")
 
     for table in tables:
-        absent = [name for name in SIGNIFICANCE_COLUMNS if name not in table.columns]
+        effect_col = verdict_effect_col(table)
+        required = (
+            "features",
+            effect_col,
+            "pvalue",
+            "adj_pvalue",
+            "is_signif",
+        )
+        absent = [name for name in required if name not in table.columns]
         if absent:
             raise SaInternalError(
                 "internal error: a verdict table is missing contract column(s): "

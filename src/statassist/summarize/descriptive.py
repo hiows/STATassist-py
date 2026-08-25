@@ -28,6 +28,7 @@ __all__ = [
     "describe_columns",
     "describe_vector",
     "kurtosis",
+    "levels_present",
     "skewness",
     "summarize_descriptive_stats",
 ]
@@ -235,7 +236,7 @@ def summarize_descriptive_stats(
         group_lv = ["all"]
         data = frame
     elif group_lv is None:
-        group_lv = _levels_present(group)
+        group_lv = levels_present(group)
 
     validated = validate_wide_input(data, feats, group, group_lv, min_levels=1)
     if validated.group is None:  # pragma: no cover - a level was always supplied
@@ -278,12 +279,16 @@ def _as_frame(data: Any) -> pd.DataFrame:
     raise SaValueError("`data` must be a data.frame or a matrix.")
 
 
-def _levels_present(group: Any) -> list[str]:
+def levels_present(group: Any) -> list[str]:
     """The levels of a grouping vector, the way R reads them off a factor.
 
     A :class:`pandas.Categorical` keeps its own order, minus any category no row
     uses, which is ``levels(droplevels(group))``. Anything else is sorted, which
     is ``sort(unique(as.character(group)))``.
+
+    Shared with :func:`~statassist.draw_grouped_barplot`, which derives the same
+    levels for the same reason: a bar of the figure and a row of the summary have
+    to be the same group.
     """
     if isinstance(group, pd.Categorical | pd.Series) and isinstance(
         getattr(group, "dtype", None), pd.CategoricalDtype
