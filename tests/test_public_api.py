@@ -18,6 +18,7 @@ import statassist
 #: functions.
 PUBLIC = (
     "center_by_control",
+    "compare_categorical_groups",
     "compare_factorial_groups",
     "compare_multiple_groups",
     "compare_one_sample",
@@ -30,8 +31,12 @@ PUBLIC = (
     "draw_grouped_boxplot",
     "draw_heatmap",
     "draw_interaction_plot",
+    "draw_mosaic_plot",
     "draw_volcano_plot",
+    "estimate_categorical_significance",
     "estimate_significance",
+    "fit_linear_regression",
+    "fit_logistic_regression",
     "make_block_cor",
     "screen_outliers",
     "simulate_categorical_groups",
@@ -64,6 +69,7 @@ class TestExports:
             "core",
             "diagnose",
             "estimate",
+            "fit",
             "kernel",
             "plot",
             "simulate",

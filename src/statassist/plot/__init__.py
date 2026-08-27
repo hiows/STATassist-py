@@ -25,9 +25,11 @@ from .corrplot import CORR_LIMITS, draw_corrplot
 from .forest import FOREST_VIEWS, draw_forest_plot
 from .heatmap import HCLUST_METHODS, HEATMAP_SCALES, Clustering, draw_heatmap
 from .interaction import INTERACTION_VIEWS, draw_interaction_plot
+from .mosaic import ANNO_MODES, MOSAIC_COLORS, RESIDUAL_BREAKS, RESIDUALS, draw_mosaic_plot
 from .volcano import draw_volcano_plot
 
 __all__ = [
+    "ANNO_MODES",
     "BAR_ERRORBARS",
     "BAR_HEIGHTS",
     "BOX_PANEL_AXES",
@@ -38,6 +40,9 @@ __all__ = [
     "HCLUST_METHODS",
     "HEATMAP_SCALES",
     "INTERACTION_VIEWS",
+    "MOSAIC_COLORS",
+    "RESIDUALS",
+    "RESIDUAL_BREAKS",
     "Clustering",
     "draw_butterfly_hist",
     "draw_corrplot",
@@ -46,5 +51,6 @@ __all__ = [
     "draw_grouped_boxplot",
     "draw_heatmap",
     "draw_interaction_plot",
+    "draw_mosaic_plot",
     "draw_volcano_plot",
 ]

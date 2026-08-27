@@ -7,9 +7,13 @@ import pytest
 
 from statassist.core import (
     SIGNIFICANCE_COLUMNS,
+    SaCategorical,
+    SaCategoricalSignificance,
     SaComparison,
     SaSignificance,
     metadata,
+    new_categorical,
+    new_categorical_significance,
     new_comparison,
     new_significance,
     pick_test,
@@ -272,6 +276,211 @@ class TestSaSignificanceRepr:
         text = repr(new_significance("factorial_comparison", by_term))
         assert "one table per term" in text
         assert "abs(log2_effect) >= 1" in text
+
+
+def _categorical(**overrides: object) -> SaCategorical:
+    kwargs: dict[str, object] = {
+        "analysis": "categorical_comparison",
+        "variables": ["smoker", "grade"],
+        "design": {
+            "category_lv": {"smoker": ["y", "n"], "grade": ["high", "low"]},
+            "null": "independence",
+            "paired": False,
+            "pairing": None,
+            "dim": [2, 2],
+            "row_var": "smoker",
+            "col_var": "grade",
+            "n_used": 80,
+            "n_dropped": 0,
+            "n_incomplete": 0,
+        },
+        "parameters": {"conf_level": 0.95, "correct": True},
+        "cells": _cells(),
+        "tests": {"chisq_test": _categorical_test()},
+        "test_info": {"chisq_test": {"label": "Chi-square test of independence"}},
+        "association": _association(),
+    }
+    kwargs.update(overrides)
+    return new_categorical(**kwargs)  # type: ignore[arg-type]
+
+
+def _cells() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "row_level": ["y", "n", "y", "n"],
+            "col_level": ["high", "high", "low", "low"],
+            "observed": [10.0, 30.0, 30.0, 10.0],
+            "expected": [20.0, 20.0, 20.0, 20.0],
+            "residual": [-2.236, 2.236, 2.236, -2.236],
+            "std_residual": [-3.162, 3.162, 3.162, -3.162],
+            "prop_total": [0.125, 0.375, 0.375, 0.125],
+            "prop_row": [0.25, 0.75, 0.75, 0.25],
+            "prop_col": [0.25, 0.75, 0.75, 0.25],
+        }
+    )
+
+
+def _categorical_test() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "n_used": [80.0],
+            "statistic": [20.0],
+            "df": [1.0],
+            "pval": [7.7e-06],
+            "lower_conf": [float("nan")],
+            "upper_conf": [float("nan")],
+        }
+    )
+
+
+def _association() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "measure": ["cramers_v", "odds_ratio"],
+            "estimate": [0.5, 0.111],
+            "lower_conf": [float("nan"), 0.04],
+            "upper_conf": [float("nan"), 0.29],
+        }
+    )
+
+
+class TestNewCategorical:
+    def test_the_slots_are_the_cell_axis_rather_than_the_feature_axis(self) -> None:
+        res = _categorical()
+        assert isinstance(res, SaCategorical)
+        assert not isinstance(res, SaComparison)
+        assert "cells" in res and "association" in res
+        assert "features" not in res and "effect" not in res
+
+    def test_diagnostics_stays_even_when_not_requested(self) -> None:
+        res = _categorical()
+        assert "diagnostics" in res
+        assert res["diagnostics"] is None
+
+    def test_metadata_is_attached(self) -> None:
+        assert set(_categorical()["metadata"]) == set(metadata())
+
+    def test_the_null_must_be_one_the_package_names(self) -> None:
+        """A cell's `expected` means nothing without it, so an unnamed null is a
+        table of numbers about nothing."""
+        design = dict(_categorical()["design"]) | {"null": "no_association"}
+        with pytest.raises(SaInternalError, match="must name one of independence"):
+            _categorical(design=design)
+
+    def test_the_dim_must_be_the_two_dimensions_of_the_table(self) -> None:
+        for dim in ([2], [2, 3, 4], [0, 2]):
+            design = dict(_categorical()["design"]) | {"dim": dim}
+            with pytest.raises(SaInternalError, match="two dimensions of the table"):
+                _categorical(design=design)
+
+    def test_the_cells_must_account_for_every_cell_of_that_table(self) -> None:
+        with pytest.raises(SaInternalError, match="3 row\\(s\\) for a 2 x 2 table"):
+            _categorical(cells=_cells().iloc[:3])
+
+    def test_a_cell_table_missing_a_contract_column_is_a_contract_breach(self) -> None:
+        stripped = _cells().drop(columns=["std_residual"])
+        with pytest.raises(SaInternalError, match="contract column\\(s\\): std_residual"):
+            _categorical(cells=stripped)
+
+    def test_a_test_holding_more_than_one_row_is_a_contract_breach(self) -> None:
+        """One table is one question, so a test of it has one row and no feature
+        axis to be aligned with."""
+        two = pd.concat([_categorical_test()] * 2, ignore_index=True)
+        with pytest.raises(SaInternalError, match="exactly one row"):
+            _categorical(tests={"chisq_test": two})
+
+    def test_a_test_table_missing_a_contract_column_is_a_contract_breach(self) -> None:
+        stripped = _categorical_test().drop(columns=["n_used"])
+        with pytest.raises(SaInternalError, match="contract column\\(s\\): n_used"):
+            _categorical(tests={"chisq_test": stripped})
+
+    def test_tests_and_test_info_must_name_the_same_tests(self) -> None:
+        with pytest.raises(SaInternalError, match="name different tests"):
+            _categorical(test_info={"fisher_test": {"label": "Fisher's exact test"}})
+
+    def test_an_empty_tests_mapping_is_a_contract_breach(self) -> None:
+        with pytest.raises(SaInternalError, match="non-empty named mapping"):
+            _categorical(tests={}, test_info={})
+
+    def test_an_association_table_missing_a_contract_column_is_a_contract_breach(self) -> None:
+        stripped = _association().drop(columns=["measure"])
+        with pytest.raises(SaInternalError, match="contract column\\(s\\): measure"):
+            _categorical(association=stripped)
+
+
+class TestSaCategoricalRepr:
+    def test_it_reports_the_shape_the_null_and_the_verdict(self) -> None:
+        text = repr(_categorical())
+        assert "smoker (2) x grade (2)  (4 cells, independent)" in text
+        assert "null     : independence" in text
+        assert "observed : 80 row(s)" in text
+        assert "$chisq_test  pval = " in text
+        assert "null rejected at 0.05" in text
+
+    def test_the_measures_are_printed_with_the_intervals_they_have(self) -> None:
+        """And without the ones they do not: Cramer's V is reported here without
+        an interval, and a blank pair of brackets would read as one."""
+        text = repr(_categorical())
+        assert "cramers_v   0.5\n" in text
+        assert "odds_ratio  0.111  [0.04, 0.29]" in text
+
+    def test_a_matched_design_says_what_it_was_matched_by(self) -> None:
+        design = dict(_categorical()["design"]) | {
+            "paired": True,
+            "pairing": "before/after",
+            "null": "symmetry",
+        }
+        text = repr(_categorical(design=design))
+        assert "matched by before/after" in text
+        assert "symmetry" in text
+
+    def test_the_dropped_rows_are_reported_where_there_were_any(self) -> None:
+        design = dict(_categorical()["design"]) | {"n_dropped": 3, "n_incomplete": 2}
+        text = repr(_categorical(design=design))
+        assert "3 row(s) outside `category_lv`" in text
+        assert "2 row(s) missing a value the table needs" in text
+
+    def test_the_cell_table_is_not_printed(self) -> None:
+        """Four rows of a long table are how the contract stores a 2x2, and not
+        how anyone reads one; `as_table()` is."""
+        assert "prop_row" not in repr(_categorical())
+
+
+class TestAsTable:
+    def test_it_comes_back_as_the_table_that_was_crossed(self) -> None:
+        table = _categorical().as_table()
+        assert table.shape == (2, 2)
+        assert list(table.index) == ["y", "n"]
+        assert list(table.columns) == ["high", "low"]
+        assert table.index.name == "smoker"
+        assert table.columns.name == "grade"
+
+    def test_a_count_stays_where_its_labels_put_it(self) -> None:
+        """Which is the reason the cell table is long: a level's name travels
+        with its count rather than with its position."""
+        table = _categorical().as_table()
+        assert float(table.loc["y", "high"]) == 10.0
+        assert float(table.loc["n", "high"]) == 30.0
+
+
+class TestNewCategoricalSignificance:
+    def test_the_two_slots_are_the_ones_r_has(self) -> None:
+        verdict = pd.DataFrame({"measure": ["cramers_v"], "is_signif": [True]})
+        res = new_categorical_significance("categorical_comparison", verdict)
+        assert list(res) == ["analysis_type", "significance"]
+        assert res.analysis_type == "categorical_comparison"
+
+    def test_it_is_not_the_numeric_verdict_object(self) -> None:
+        """The two are kept apart so that a plot which needs a feature axis
+        refuses a cell axis instead of drawing an empty panel."""
+        verdict = pd.DataFrame({"measure": ["cramers_v"], "is_signif": [True]})
+        res = new_categorical_significance("categorical_comparison", verdict)
+        assert isinstance(res, SaCategoricalSignificance)
+        assert not isinstance(res, SaSignificance)
+
+    def test_a_verdict_that_is_not_a_table_is_a_contract_breach(self) -> None:
+        with pytest.raises(SaInternalError, match="must be a DataFrame"):
+            new_categorical_significance("categorical_comparison", {"a": 1})  # type: ignore[arg-type]
 
 
 class TestPickTest:

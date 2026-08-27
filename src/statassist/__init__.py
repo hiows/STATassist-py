@@ -15,13 +15,15 @@ feature reads as once the control group is taken out of it.
 __version__ = "0.1.0.dev0"
 
 from .compare import (
+    compare_categorical_groups,
     compare_factorial_groups,
     compare_multiple_groups,
     compare_one_sample,
     compare_two_groups,
 )
 from .diagnose import diagnose_distribution, screen_outliers
-from .estimate import estimate_significance
+from .estimate import estimate_categorical_significance, estimate_significance
+from .fit import fit_linear_regression, fit_logistic_regression
 from .plot import (
     draw_butterfly_hist,
     draw_corrplot,
@@ -30,6 +32,7 @@ from .plot import (
     draw_grouped_boxplot,
     draw_heatmap,
     draw_interaction_plot,
+    draw_mosaic_plot,
     draw_volcano_plot,
 )
 from .simulate import (
@@ -48,6 +51,7 @@ from .transform import center_by_control
 __all__ = [
     "__version__",
     "center_by_control",
+    "compare_categorical_groups",
     "compare_factorial_groups",
     "compare_multiple_groups",
     "compare_one_sample",
@@ -60,8 +64,12 @@ __all__ = [
     "draw_grouped_boxplot",
     "draw_heatmap",
     "draw_interaction_plot",
+    "draw_mosaic_plot",
     "draw_volcano_plot",
+    "estimate_categorical_significance",
     "estimate_significance",
+    "fit_linear_regression",
+    "fit_logistic_regression",
     "make_block_cor",
     "screen_outliers",
     "simulate_categorical_groups",

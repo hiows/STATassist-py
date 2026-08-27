@@ -14,11 +14,16 @@ language readable in the other.
 from __future__ import annotations
 
 __all__ = [
+    "RATIO_MEASURES",
+    "assoc_scale",
     "association_columns",
     "categorical_cell_columns",
     "categorical_nulls",
     "categorical_test_columns",
     "cell_table_columns",
+    "model_coef_columns",
+    "model_inference_columns",
+    "null_label",
     "pairwise_table_columns",
     "posthoc_stat_columns",
     "posthoc_table_columns",
@@ -129,6 +134,24 @@ def categorical_nulls() -> list[str]:
     return ["independence", "symmetry", "marginal_homogeneity"]
 
 
+def null_label(null: str) -> str:
+    """A one-line reading of what a null hypothesis says.
+
+    Port of ``sa_null_label()``. Read by ``repr()`` of a categorical result and
+    by the mosaic key, so the two cannot describe the same shading differently.
+    A name this does not know is handed back as it arrived, which is what R's
+    ``switch()`` default does.
+    """
+    readings = {
+        "independence": "independence -- a cell is expected at the product of its margins",
+        "symmetry": "symmetry -- a cell is expected at the average of it and its transpose",
+        "marginal_homogeneity": (
+            "marginal homogeneity -- every condition is expected at the pooled rate"
+        ),
+    }
+    return readings.get(null, null)
+
+
 def categorical_cell_columns() -> list[str]:
     """Columns the cell table of a contingency scenario must carry.
 
@@ -187,6 +210,57 @@ def association_columns() -> list[str]:
     for every measure the design does not define.
     """
     return ["measure", "estimate", "lower_conf", "upper_conf"]
+
+
+#: The association measures that are ratios centred at 1 rather than at zero.
+#:
+#: Two of the measures this scenario reports are odds ratios and the rest are
+#: centred at zero, which is the whole of what a cutoff or a printed rule has to
+#: know about a measure's scale.
+RATIO_MEASURES = ("odds_ratio", "odds_ratio_paired")
+
+
+def assoc_scale(measure: str) -> str:
+    """Which scale an association measure lives on.
+
+    Port of ``sa_assoc_scale()``. The zero-centred measures are read on their
+    magnitude, which is a no-op for the ones that cannot be negative and the
+    correct reading for the ones that can: ``cohens_g`` and
+    ``risk_difference_paired`` fall below zero when the later condition lowers
+    the response, and a departure downwards is as large as the same one upwards.
+
+    Returns:
+        ``"ratio"`` or ``"magnitude"``.
+    """
+    return "ratio" if measure in RATIO_MEASURES else "magnitude"
+
+
+def model_coef_columns() -> list[str]:
+    """Columns every coefficient table of a fitted model must carry.
+
+    Port of ``sa_model_coef_columns()``. What every model answers is which terms
+    it has and what it estimated for each, so those two are the contract and the
+    rest is per-model. ``terms`` is also the row order every other table in a
+    :class:`~statassist.core.result.SaModel` follows, the way ``features`` is in
+    a comparison result.
+    """
+    return ["terms", "estimate"]
+
+
+def model_inference_columns() -> list[str]:
+    """The inference columns a model either fills or does not have.
+
+    Port of ``sa_model_inference_columns()``. ``statistic`` is a t value for a
+    linear model and a Wald z for a logistic one, which is why the column is not
+    named after either.
+
+    They come as a group, and a table that has none of them is a different kind
+    of table rather than one that lost its values: a penalized fit's estimates
+    are deliberately biased and a standard error assumes an unbiased one, so
+    there is nothing to put here and ``"pval" in table.columns`` is what tells a
+    consumer which kind of table it is holding.
+    """
+    return ["stderr", "statistic", "df", "pval", "lower_conf", "upper_conf"]
 
 
 def pairwise_table_columns() -> list[str]:

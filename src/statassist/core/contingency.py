@@ -36,11 +36,13 @@ __all__ = [
     "EXPECTED_LT5_MAX_PROP",
     "MAX_CATEGORY_LEVELS",
     "REPEATED_CELL_MIN",
+    "TABLE_AXIS_NAMES",
     "CategoricalInput",
     "categorical_cells",
     "categorical_condition_counts",
     "categorical_counts",
     "categorical_shared_lv",
+    "categorical_table",
     "check_level_count",
     "diagnose_discordance",
     "diagnose_expected",
@@ -645,6 +647,61 @@ def categorical_cells(counts: Any, null: str = "independence") -> pd.DataFrame:
         },
         columns=categorical_cell_columns(),
     )
+
+
+#: What the two axes of a folded table are called when nothing names them.
+#:
+#: R's defaults for ``sa_categorical_table()``. Every call inside the package
+#: passes ``design$row_var`` and ``design$col_var``, so these are only reached by
+#: a caller folding a bare cell table of their own.
+TABLE_AXIS_NAMES = ("row", "column")
+
+
+def categorical_table(
+    cells: pd.DataFrame,
+    row_var: str = TABLE_AXIS_NAMES[0],
+    col_var: str = TABLE_AXIS_NAMES[1],
+) -> pd.DataFrame:
+    """Fold a cell table back into a contingency table.
+
+    Port of ``sa_categorical_table()``. ``cells`` is the canonical form because
+    that is the shape which survives being written out as JSON with its labels
+    attached; a table is the shape to read it in, so it is built on request
+    rather than stored twice and left to drift.
+
+    Indexed by level name rather than by position, so the result does not depend
+    on the order the cells happen to be in.
+
+    Args:
+        cells: One row per cell, as
+            :func:`~statassist.core.contracts.categorical_cell_columns` names.
+        row_var: What to call the row axis, normally ``design["row_var"]``.
+        col_var: The same for the columns.
+
+    Returns:
+        A frame of counts whose index and columns are the two level sets, named
+        after the axes. The counts come back as integers when every one of them
+        is whole, which is what the engines are handed everywhere else.
+    """
+    row_lv = list(dict.fromkeys(str(level) for level in cells["row_level"]))
+    col_lv = list(dict.fromkeys(str(level) for level in cells["col_level"]))
+
+    out = pd.DataFrame(
+        np.zeros((len(row_lv), len(col_lv))),
+        index=pd.Index(row_lv, name=row_var),
+        columns=pd.Index(col_lv, name=col_var),
+    )
+    at_row = {level: position for position, level in enumerate(row_lv)}
+    at_col = {level: position for position, level in enumerate(col_lv)}
+    values = np.asarray(cells["observed"], dtype=float)
+    for position, (row, column) in enumerate(
+        zip(cells["row_level"], cells["col_level"], strict=True)
+    ):
+        out.iloc[at_row[str(row)], at_col[str(column)]] = values[position]
+
+    if bool(np.all(values == np.round(values))):
+        return out.astype(np.int64)
+    return out
 
 
 # --------------------------------------------------------------------------- #

@@ -21,10 +21,12 @@ from statassist.core.contingency import (
     EXPECTED_COUNT_MIN,
     MAX_CATEGORY_LEVELS,
     REPEATED_CELL_MIN,
+    TABLE_AXIS_NAMES,
     categorical_cells,
     categorical_condition_counts,
     categorical_counts,
     categorical_shared_lv,
+    categorical_table,
     check_level_count,
     diagnose_discordance,
     diagnose_expected,
@@ -226,6 +228,59 @@ def test_a_table_with_no_labels_is_numbered_rather_than_refused() -> None:
     cells = categorical_cells(np.array([[3.0, 5.0], [7.0, 2.0]]))
     assert list(cells["row_level"]) == ["1", "2", "1", "2"]
     assert list(cells["col_level"]) == ["1", "1", "2", "2"]
+
+
+# --------------------------------------------------------------------------- #
+# categorical_table
+# --------------------------------------------------------------------------- #
+
+
+def test_a_table_survives_the_trip_through_the_cell_form(
+    cell_tables: dict[str, pd.DataFrame],
+) -> None:
+    """Which is what makes the long form canonical: nothing is lost by storing
+    it and building the table back on request."""
+    for name in ("t2x2", "t3x4", "hole"):
+        table = cell_tables[name]
+        back = categorical_table(categorical_cells(table), *TABLE_AXIS_NAMES)
+        assert list(back.index) == list(table.index)
+        assert list(back.columns) == list(table.columns)
+        assert np.allclose(back.to_numpy(dtype=float), table.to_numpy(dtype=float))
+
+
+def test_the_axes_are_named_after_the_variables_that_were_crossed(
+    cell_tables: dict[str, pd.DataFrame],
+) -> None:
+    cells = categorical_cells(cell_tables["t2x2"])
+    back = categorical_table(cells, "answer", "grade")
+    assert back.index.name == "answer"
+    assert back.columns.name == "grade"
+    # And the default is the pair the rest of the module lays a table out with.
+    assert list(categorical_table(cells).index.names) == [TABLE_AXIS_NAMES[0]]
+
+
+def test_a_count_is_placed_by_its_labels_and_not_by_its_position(
+    cell_tables: dict[str, pd.DataFrame],
+) -> None:
+    """A cell table that arrives in another order holds the same counts, which a
+    port reading `observed` down the column would not agree with. The axes follow
+    the order the levels appear in, so they turn around with it."""
+    table = categorical_table(categorical_cells(cell_tables["t3x4"]))
+    reversed_ = categorical_table(
+        categorical_cells(cell_tables["t3x4"]).iloc[::-1].reset_index(drop=True)
+    )
+    assert list(reversed_.index) == list(table.index)[::-1]
+    pd.testing.assert_frame_equal(reversed_.loc[table.index, table.columns], table)
+
+
+def test_whole_counts_come_back_as_the_integers_the_engines_are_handed(
+    cell_tables: dict[str, pd.DataFrame],
+) -> None:
+    counts = categorical_table(categorical_cells(cell_tables["t2x2"]))
+    assert counts.to_numpy().dtype.kind == "i"
+
+    weighted = cell_tables["t2x2"] / 2
+    assert categorical_table(categorical_cells(weighted)).to_numpy().dtype.kind == "f"
 
 
 # --------------------------------------------------------------------------- #

@@ -20,16 +20,19 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering",
 ]
-# Only what the code here actually imports. statsmodels and scikit-learn are
-# added by the phases that first need them. scipy arrived with the simulators:
+# Only what the code here actually imports. scipy arrived with the simulators:
 # `expit` and `brentq` are what solve the intercept that hits a requested event
 # rate. matplotlib arrived with the `draw_*` functions, which are the renderer
 # rather than a wrapper around one, so it is a hard dependency of the package
-# and not an extra.
+# and not an extra. scikit-learn arrived with `fit_*` / `cluster_*` /
+# `perform_*`, which stand where R stands on `glmnet`, `randomForest`,
+# `kernlab`, `dbscan` and `Rtsne`: the engine is wrapped rather than
+# reimplemented, so it is a hard dependency for the same reason matplotlib is.
 dependencies = [
     "matplotlib>=3.7",
     "numpy>=1.24",
     "pandas>=2.0",
+    "scikit-learn>=1.3",
     "scipy>=1.11",
 ]
 
