@@ -113,7 +113,7 @@ def fmt_num(value: Any) -> str:
 _EST_DIGITS = 3
 
 
-def fmt_est(value: Any) -> str:
+def fmt_est(value: Any, digits: int = _EST_DIGITS) -> str:
     """Render an estimate the way R's ``format(x, digits = 3, trim = TRUE)`` does.
 
     Port of ``sa_fmt_est()``. Different from :func:`fmt_num`, which is R's
@@ -128,10 +128,17 @@ def fmt_est(value: Any) -> str:
     rather than as ``12300``, and one of ``0.0000123`` turns the corner into
     ``1.23e-05``.
 
+    ``digits`` is what R's ``sa_fmt_num(x, digits)`` takes, for the callers whose
+    numbers are not estimates: a criterion sits on the scale of the row count
+    while the differences that decided a search are of order one, so it needs
+    more digits than a coefficient does.
+
     >>> [fmt_est(x) for x in (4.16666, 12345.678, 2.5, 5.0, 0.0)]
     ['4.17', '12346', '2.5', '5', '0']
     >>> [fmt_est(x) for x in (0.000123456, 0.0000123456, float("nan"), None)]
     ['0.000123', '1.23e-05', 'NA', 'NA']
+    >>> [fmt_est(158.6931, digits) for digits in (3, 6)]
+    ['159', '158.693']
     """
     if value is None or _is_na(value):
         return "NA"
@@ -144,12 +151,12 @@ def fmt_est(value: Any) -> str:
     if number == 0:
         return "0"
 
-    decimals = max(0, _EST_DIGITS - 1 - math.floor(math.log10(abs(number))))
+    decimals = max(0, digits - 1 - math.floor(math.log10(abs(number))))
     fixed = f"{number:.{decimals}f}"
     if "." in fixed:
         fixed = fixed.rstrip("0").rstrip(".")
 
-    mantissa, _, exponent = f"{number:.{_EST_DIGITS - 1}e}".partition("e")
+    mantissa, _, exponent = f"{number:.{digits - 1}e}".partition("e")
     if "." in mantissa:
         mantissa = mantissa.rstrip("0").rstrip(".")
     scientific = f"{mantissa}e{exponent[0]}{int(exponent[1:]):02d}"

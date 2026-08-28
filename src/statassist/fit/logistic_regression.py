@@ -26,6 +26,7 @@ from ._shared import (
     design_matrix,
     encode_outcome,
     inference_table,
+    logistic_estimator,
     logistic_fit,
     logistic_scores,
     model_frame,
@@ -155,8 +156,8 @@ def fit_logistic_regression(
         >>> fit = fit_logistic_regression(**sim.args, cv=False)
         >>> fit.design["outcome_lv"]
         ['control', 'case']
-        >>> fit.design["n_events"] + 0
-        48
+        >>> fit.design["n_events"] == int((sim.args["data"]["y"] == "case").sum())
+        True
         >>> "odds_ratio" in fit.coefficients
         True
 
@@ -169,9 +170,7 @@ def fit_logistic_regression(
         True
     """
     cv_method = check_cv_method(cv_method)
-    conf_level = check_scalar_num(
-        conf_level, "conf_level", 0, 1, lower_open=True, upper_open=True
-    )
+    conf_level = check_scalar_num(conf_level, "conf_level", 0, 1, lower_open=True, upper_open=True)
 
     input_ = resolve_model_input(data, outcome, predictors)
     levels = outcome_levels(input_.y, outcome_lv, control_label)
@@ -181,7 +180,9 @@ def fit_logistic_regression(
     control = train_control(
         cv, cv_method, n_fold, n_repeat, input_.n_used, classify=True, seed=seed
     )
-    resampled = resample_grid(_build, matrix, y, no_grid(), control, classify=True)
+    resampled = resample_grid(
+        _build, matrix, y, no_grid(), control, classify=True, label=_ENGINE["label"]
+    )
 
     fit = logistic_fit(matrix, y, _ENGINE["label"])
     # No df: a Wald z is referred to the normal distribution, so reporting the
@@ -226,19 +227,13 @@ def fit_logistic_regression(
         performance=model_frame(resampled.results),
         resampling=model_frame(resampled.resampling),
         engine={**_ENGINE, "metrics": resampled.metrics, "x_names": list(matrix.columns)},
-        fit=EngineFit(
-            estimator=fit.estimator, x=matrix, y=y, classify=True, outcome_lv=levels
-        ),
+        fit=EngineFit(estimator=fit.estimator, x=matrix, y=y, classify=True, outcome_lv=levels),
     )
 
 
 def _build(params: Any) -> Any:
     """One candidate of the grid, which for this model is the only one."""
-    from sklearn.linear_model import LogisticRegression
-
-    from ._shared import LOGIT_MAX_ITER
-
-    return LogisticRegression(penalty=None, solver="lbfgs", max_iter=LOGIT_MAX_ITER)
+    return logistic_estimator()
 
 
 def _fit_stats(y: np.ndarray, eta: np.ndarray, rank: int) -> dict[str, float]:

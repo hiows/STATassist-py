@@ -28,15 +28,24 @@ classifiers = [
 # `perform_*`, which stand where R stands on `glmnet`, `randomForest`,
 # `kernlab`, `dbscan` and `Rtsne`: the engine is wrapped rather than
 # reimplemented, so it is a hard dependency for the same reason matplotlib is.
+# Its floor is 1.8 because that is where an unpenalized logistic regression is
+# asked for as `C=inf`; the argument that said so before is deprecated there and
+# warns once per resample.
 dependencies = [
     "matplotlib>=3.7",
     "numpy>=1.24",
     "pandas>=2.0",
-    "scikit-learn>=1.3",
+    "scikit-learn>=1.8",
     "scipy>=1.11",
 ]
 
 [project.optional-dependencies]
+# The one engine that is not a hard dependency. `perform_umap()` wraps it the way
+# the rest of the package wraps scikit-learn, but it is the only public function
+# that needs it, it pulls in numba, and the other two reductions answer about the
+# same points - so a caller who wants UMAP asks for it and everyone else does not
+# pay for the compiler.
+umap = ["umap-learn>=0.5"]
 dev = [
     "pytest>=7.4",
     "ruff>=0.1",

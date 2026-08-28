@@ -21,12 +21,24 @@ __all__ = [
     "categorical_nulls",
     "categorical_test_columns",
     "cell_table_columns",
+    "classification_comparison_columns",
+    "classification_metric_columns",
+    "cluster_assignment_columns",
+    "cluster_table_columns",
+    "curve_columns",
     "model_coef_columns",
     "model_inference_columns",
     "null_label",
     "pairwise_table_columns",
     "posthoc_stat_columns",
     "posthoc_table_columns",
+    "prediction_columns",
+    "reduction_variance_columns",
+    "regression_comparison_columns",
+    "regression_metric_columns",
+    "selection_profile_columns",
+    "selection_ranking_columns",
+    "stepwise_profile_columns",
     "term_table_columns",
     "test_table_columns",
 ]
@@ -261,6 +273,191 @@ def model_inference_columns() -> list[str]:
     consumer which kind of table it is holding.
     """
     return ["stderr", "statistic", "df", "pval", "lower_conf", "upper_conf"]
+
+
+def prediction_columns() -> list[str]:
+    """Columns the prediction table of an evaluation must carry.
+
+    Port of ``sa_prediction_columns()``. Long rather than wide: one row per model
+    and scored row, so that a set of models of any size fits the same table and a
+    plot can be drawn from it by taking a subset rather than by choosing columns.
+
+    ``row`` is the position in ``newdata`` the prediction was made for, which is
+    what lets a caller put a prediction back beside the row it belongs to after
+    the rows no model could predict have been left out.
+    """
+    return ["model", "row", "observed", "predicted"]
+
+
+def regression_metric_columns() -> list[str]:
+    """Columns the metric table of a regression evaluation must carry.
+
+    Port of ``sa_regression_metric_columns()``. Six ways of being wrong, and they
+    disagree usefully.
+
+    ``cor`` is rank-free agreement, so a model that predicts the right ordering
+    on the wrong scale scores well on it and badly on ``r_squared``. ``bias`` is
+    the mean residual, which is the one that says a model is wrong in a
+    direction rather than merely wrong. And the two calibration numbers are the
+    line through predicted against observed: a slope below 1 is the signature of
+    a model whose predictions are too spread out for the outcome they are
+    predicting, which no summary of the errors reports.
+    """
+    return [
+        "model",
+        "n_used",
+        "cor",
+        "r_squared",
+        "rmse",
+        "mae",
+        "bias",
+        "calib_slope",
+        "calib_intercept",
+    ]
+
+
+def classification_metric_columns() -> list[str]:
+    """Columns the metric table of a classification evaluation must carry.
+
+    Port of ``sa_classification_metric_columns()``. The first three are
+    threshold-free and the last three are not, which is the division worth
+    knowing: ``auc`` and ``brier`` describe the predicted probabilities
+    themselves, while ``accuracy``, ``sensitivity`` and ``specificity`` describe
+    what happens when they are turned into calls at
+    ``parameters["threshold"]``.
+    """
+    return [
+        "model",
+        "n_used",
+        "n_events",
+        "auc",
+        "auc_lower_conf",
+        "auc_upper_conf",
+        "brier",
+        "accuracy",
+        "sensitivity",
+        "specificity",
+    ]
+
+
+def regression_comparison_columns() -> list[str]:
+    """Columns the comparison table of a regression evaluation must carry.
+
+    Port of ``sa_regression_comparison_columns()``. Differences and no p-values,
+    which is the honest shape: there is no paired test of two correlations or two
+    root mean squared errors on the same rows that this package implements, so a
+    column of them would be a number nobody could stand behind.
+    """
+    return ["model", "delta_cor", "delta_r_squared", "delta_rmse", "delta_mae"]
+
+
+def classification_comparison_columns() -> list[str]:
+    """Columns the comparison table of a classification evaluation must carry.
+
+    Port of ``sa_classification_comparison_columns()``. Three paired tests, and
+    each answers a question the others do not.
+
+    ``delta_auc`` is DeLong's test: whether the new model ranks the events above
+    the non-events better. ``idi`` is whether it separates the two groups'
+    predicted probabilities further apart, which a model can do without changing
+    any ordering. ``nri`` is whether the rows it moved were moved the right way,
+    reported as a total and split into the events and the non-events, since a
+    model that raises everyone's probability improves the events and damages the
+    others by the same rule.
+    """
+    return [
+        "model",
+        "delta_auc",
+        "delta_auc_lower_conf",
+        "delta_auc_upper_conf",
+        "delta_auc_pval",
+        "idi",
+        "idi_lower_conf",
+        "idi_upper_conf",
+        "idi_pval",
+        "nri",
+        "nri_event",
+        "nri_nonevent",
+        "nri_lower_conf",
+        "nri_upper_conf",
+        "nri_pval",
+    ]
+
+
+def curve_columns() -> list[str]:
+    """Columns the ROC curve table of a classification evaluation must carry.
+
+    Port of ``sa_curve_columns()``. One row per operating point per model, with
+    ``threshold`` the prediction at which that point is reached. The first point
+    of every curve has an infinite threshold, which is the point where nothing is
+    called an event; written out as JSON that becomes ``null``, and the
+    coordinates beside it are what the curve is drawn from either way.
+    """
+    return ["model", "threshold", "sensitivity", "specificity"]
+
+
+def reduction_variance_columns() -> list[str]:
+    """Columns the component table of a principal component analysis must carry.
+
+    One row per component, and every component is here: a share of the variance
+    is only a share if the rest of it is there to be a share of. ``prop_var`` and
+    ``cum_var`` are percentages rather than fractions, which is what an axis label
+    reads as.
+    """
+    return ["component", "sdev", "prop_var", "cum_var"]
+
+
+def cluster_assignment_columns() -> list[str]:
+    """Columns the per-point table of a clustering must carry.
+
+    One row per point, in the row order ``points`` is in, which is what lets an
+    assignment be painted straight onto the scores of a reduction of the same
+    rows. ``cluster`` is a whole number and ``0`` means noise, so a cluster number
+    of zero is not a cluster.
+    """
+    return ["points", "cluster", "silhouette"]
+
+
+def cluster_table_columns() -> list[str]:
+    """Columns the per-cluster table of a clustering must carry.
+
+    One row per cluster that was found and never a row for noise, so the length
+    of the table is the number of groups there were and what did not join one is
+    ``design["n_noise"]``.
+    """
+    return ["cluster", "size", "silhouette"]
+
+
+def selection_ranking_columns() -> list[str]:
+    """Columns the per-candidate table of a feature selection must carry.
+
+    One row per predictor that was offered, in the order the search ranked them,
+    which is the row order ``candidates`` is in. ``estimate`` is whatever the
+    search ranked by and ``engine["importance"]`` names it, since a t statistic
+    and a rise in a criterion are the same column under two readings.
+    """
+    return ["candidates", "estimate", "rank", "selected"]
+
+
+def selection_profile_columns() -> list[str]:
+    """Columns every profile table must carry, whichever search filled it.
+
+    One row per model the search compared, and only these two are shared: an
+    elimination's rows are subset sizes and each carries its resampled metrics,
+    while a stepwise path's rows are steps and carry both criteria. ``n_vars``
+    counts predictors rather than coefficients, so a factor counts once.
+    """
+    return ["n_vars", "chosen"]
+
+
+def stepwise_profile_columns() -> list[str]:
+    """Columns the profile table of a stepwise search carries, in order.
+
+    Both criteria are reported whichever one searched, since they are two charges
+    against the same likelihood and the fit that has one has the other. ``step``
+    is the move that reached this model, empty on the row the search started at.
+    """
+    return ["n_vars", "AIC", "BIC", "step", "chosen"]
 
 
 def pairwise_table_columns() -> list[str]:

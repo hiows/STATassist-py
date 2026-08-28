@@ -156,9 +156,7 @@ def fit_linear_regression(
         ['(Intercept)', 'glo']
     """
     cv_method = check_cv_method(cv_method)
-    conf_level = check_scalar_num(
-        conf_level, "conf_level", 0, 1, lower_open=True, upper_open=True
-    )
+    conf_level = check_scalar_num(conf_level, "conf_level", 0, 1, lower_open=True, upper_open=True)
 
     input_ = resolve_model_input(data, outcome, predictors)
     y = input_.y
@@ -175,13 +173,13 @@ def fit_linear_regression(
 
     matrix = design_matrix(input_.x)
     control = train_control(cv, cv_method, n_fold, n_repeat, input_.n_used, seed=seed)
-    resampled = resample_grid(_build, matrix, values, no_grid(), control, classify=False)
+    resampled = resample_grid(
+        _build, matrix, values, no_grid(), control, classify=False, label=_ENGINE["label"]
+    )
 
     fit = least_squares(matrix, values, _ENGINE["label"])
     residual_df = input_.n_used - fit.rank
-    coefficients = inference_table(
-        fit.terms, fit.estimate, fit.stderr, conf_level, df=residual_df
-    )
+    coefficients = inference_table(fit.terms, fit.estimate, fit.stderr, conf_level, df=residual_df)
     if fit.aliased:
         warn(
             "term(s) could not be estimated because the other predictors already span "
@@ -214,9 +212,7 @@ def fit_linear_regression(
         performance=model_frame(resampled.results),
         resampling=model_frame(resampled.resampling),
         engine={**_ENGINE, "metrics": resampled.metrics, "x_names": list(matrix.columns)},
-        fit=EngineFit(
-            estimator=fit.estimator, x=matrix, y=values, classify=False, outcome_lv=None
-        ),
+        fit=EngineFit(estimator=fit.estimator, x=matrix, y=values, classify=False, outcome_lv=None),
     )
 
 

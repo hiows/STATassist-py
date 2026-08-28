@@ -15,10 +15,16 @@ names and the direction rule that decides which class a coefficient describes.
 
 from __future__ import annotations
 
+from .elastic_net import fit_elastic_net
 from .linear_regression import fit_linear_regression
 from .logistic_regression import fit_logistic_regression
+from .random_forest import fit_rf
+from .svm import fit_svm
 
 __all__ = [
+    "fit_elastic_net",
     "fit_linear_regression",
     "fit_logistic_regression",
+    "fit_rf",
+    "fit_svm",
 ]

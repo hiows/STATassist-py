@@ -51,35 +51,61 @@ from ..core.validate import (
 __all__ = [
     "CLASSIFICATION_METRICS",
     "CV_METHODS",
+    "INTERCEPT",
+    "N_CLASSES",
+    "PENALTIES",
     "PREDICT_TYPES",
     "REGRESSION_METRICS",
+    "SEARCH_OUTCOME",
     "DesignEstimator",
     "EngineFit",
     "LinearFit",
     "ModelInput",
+    "Outcome",
     "ResampleControl",
     "Resampled",
+    "ScaledFit",
     "check_cv_method",
+    "check_penalty",
+    "class_scores",
+    "classification_scores",
     "design_lv",
     "design_matrix",
+    "design_source",
     "encode_outcome",
     "enet_grid",
+    "importance_table",
     "inference_table",
     "least_squares",
+    "logistic_estimator",
     "logistic_fit",
     "logistic_scores",
+    "model_design",
     "model_frame",
     "no_grid",
+    "numeric_scores",
     "outcome_levels",
+    "permutation_scores",
     "predict_frame",
     "predict_model",
     "quiet_engine",
+    "regression_scores",
     "resample_grid",
+    "resample_labels",
+    "resample_mean",
+    "resample_params",
+    "resample_scheme",
+    "resample_spread",
     "resolve_model_input",
+    "resolve_outcome",
     "rf_grid",
+    "rollup",
+    "scaled_estimator",
+    "scaled_fit",
     "search_frame",
     "search_label",
     "svm_grid",
+    "train_control",
     "wald_interval",
     "weighted_least_squares",
 ]
@@ -302,6 +328,7 @@ def resample_grid(
     grid: pd.DataFrame,
     control: ResampleControl,
     classify: bool,
+    label: str = "the engine",
 ) -> Resampled:
     """Score every candidate over the resamples, and say which one placed first.
 
@@ -322,6 +349,7 @@ def resample_grid(
         grid: One row per candidate, columns named after the tuned parameters.
         control: The scheme, as :func:`train_control` resolved it.
         classify: Whether the outcome is a class.
+        label: What to call the model in the note collecting the engine's own.
     """
     metrics = list(CLASSIFICATION_METRICS if classify else REGRESSION_METRICS)
     score = classification_scores if classify else regression_scores
@@ -338,19 +366,20 @@ def resample_grid(
 
     rows: list[dict[str, Any]] = []
     per_resample: list[list[dict[str, float]]] = []
-    for position in range(len(grid.index)):
-        params = dict(grid.iloc[position])
-        folded = _score_folds(build, params, x, y, splits, score, pooled)
-        per_resample.append(folded)
-        summary = dict(params)
-        for metric in metrics:
-            values = np.array([fold[metric] for fold in folded], dtype=float)
-            summary[metric] = float(np.nanmean(values)) if values.size else math.nan
-            if not pooled:
-                summary[f"{metric}SD"] = (
-                    float(np.nanstd(values, ddof=1)) if values.size > 1 else math.nan
-                )
-        rows.append(summary)
+    # One note for the whole search rather than one per fold, since fitting the
+    # same model on 25 resamples raises the same condition of the data 25 times.
+    with quiet_engine(label):
+        for position in range(len(grid.index)):
+            params = dict(grid.iloc[position])
+            folded = _score_folds(build, params, x, y, splits, score, pooled)
+            per_resample.append(folded)
+            summary = dict(params)
+            for metric in metrics:
+                values = np.array([fold[metric] for fold in folded], dtype=float)
+                summary[metric] = resample_mean(values)
+                if not pooled:
+                    summary[f"{metric}SD"] = resample_spread(values)
+            rows.append(summary)
 
     results = pd.DataFrame(rows)
     ranked = results[metrics[0]].to_numpy(dtype=float)
@@ -365,6 +394,27 @@ def resample_grid(
         resampling["Resample"] = resample_labels(control, len(splits))
 
     return Resampled(results, resampling, dict(grid.iloc[at]), metrics)
+
+
+def resample_mean(values: np.ndarray) -> float:
+    """The mean over the resamples that could be scored.
+
+    A metric no resample could answer - ``Kappa`` where every fold predicted one
+    class - averages to missing rather than to a warning from the mean of an
+    empty selection.
+    """
+    usable = values[~np.isnan(values)]
+    return float(usable.mean()) if usable.size > 0 else math.nan
+
+
+def resample_spread(values: np.ndarray) -> float:
+    """The spread across the resamples that could be scored.
+
+    Two are needed for a spread, which is why one usable resample gives missing
+    rather than 0: a single number does not disagree with itself.
+    """
+    usable = values[~np.isnan(values)]
+    return float(usable.std(ddof=1)) if usable.size > 1 else math.nan
 
 
 def _score_folds(
@@ -640,7 +690,9 @@ def resolve_model_input(data: Any, outcome: Any, predictors: Any = None) -> Mode
     # listwise deletion below removes and counts, not a call that cannot proceed.
     resolved = resolve_row_vector(outcome, "outcome", data, allow_na=True)
     if resolved.value is None:
-        raise SaValueError("`outcome` must name a column of `data` or hold one entry per row of it.")
+        raise SaValueError(
+            "`outcome` must name a column of `data` or hold one entry per row of it."
+        )
     y = resolved.value
     label = str(resolved.label)
 
@@ -686,8 +738,7 @@ def resolve_model_input(data: Any, outcome: Any, predictors: Any = None) -> Mode
     kept = [name for name in names if name not in constant]
     if not kept:
         raise SaValueError(
-            "every predictor takes a single value over the usable rows, so there is "
-            "nothing to fit."
+            "every predictor takes a single value over the usable rows, so there is nothing to fit."
         )
 
     return ModelInput(
@@ -814,29 +865,7 @@ def design_matrix(
         >>> list(design_matrix(frame).columns)
         ['a', 'glo']
     """
-    columns: dict[str, np.ndarray] = {}
-    for name in x.columns:
-        values = x[name]
-        levels = None if xlev is None else xlev.get(str(name))
-        if levels is None:
-            levels = _levels_of(values)
-
-        if levels is None:
-            if pd.api.types.is_bool_dtype(values):
-                columns[f"{name}TRUE"] = values.astype(float).to_numpy()
-            else:
-                columns[str(name)] = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
-            continue
-
-        # `NA` reaches every dummy of the factor it came from rather than being
-        # read as "not this level", which is what `na.action = na.pass` does.
-        codes = values.astype(object).map(lambda entry: None if pd.isna(entry) else str(entry))
-        missing = codes.isna().to_numpy()
-        for level in levels[1:]:
-            dummy = (codes == level).to_numpy(dtype=float)
-            dummy[missing] = np.nan
-            columns[f"{name}{level}"] = dummy
-
+    columns = {term: values for term, _, values in _design_columns(x, xlev) if values is not None}
     matrix = pd.DataFrame(columns, index=pd.RangeIndex(len(x.index)))
     if want is not None:
         absent = [name for name in want if name not in matrix.columns]
@@ -847,6 +876,52 @@ def design_matrix(
             )
         matrix = matrix[list(want)]
     return matrix
+
+
+def design_source(x: pd.DataFrame, xlev: Mapping[str, list[str]] | None = None) -> dict[str, str]:
+    """Which predictor each column of :func:`design_matrix` came from.
+
+    A factor becomes several columns, so anything reported per column has to be
+    brought back to the predictor before it can be read as a statement about the
+    data: three dummies of one factor are three shares of one predictor's worth.
+
+    Built by the same walk over the frame that does the coding, rather than by
+    reading the names apart afterwards. There is no reading them apart: a
+    predictor called ``x`` and a factor called ``x`` with a level ``1`` would both
+    claim the column ``x1``.
+    """
+    return {term: source for term, source, _ in _design_columns(x, xlev)}
+
+
+def _design_columns(
+    x: pd.DataFrame, xlev: Mapping[str, list[str]] | None
+) -> Iterator[tuple[str, str, np.ndarray | None]]:
+    """Walk the predictor frame, naming and coding one model term at a time.
+
+    Yields the term name, the predictor it came from, and its column.
+    """
+    for name in x.columns:
+        values = x[name]
+        levels = None if xlev is None else xlev.get(str(name))
+        if levels is None:
+            levels = _levels_of(values)
+
+        if levels is None:
+            if pd.api.types.is_bool_dtype(values):
+                yield f"{name}TRUE", str(name), values.astype(float).to_numpy()
+            else:
+                coded = pd.to_numeric(values, errors="coerce").to_numpy(dtype=float)
+                yield str(name), str(name), coded
+            continue
+
+        # `NA` reaches every dummy of the factor it came from rather than being
+        # read as "not this level", which is what `na.action = na.pass` does.
+        codes = values.astype(object).map(lambda entry: None if pd.isna(entry) else str(entry))
+        missing = codes.isna().to_numpy()
+        for level in levels[1:]:
+            dummy = (codes == level).to_numpy(dtype=float)
+            dummy[missing] = np.nan
+            yield f"{name}{level}", str(name), dummy
 
 
 def predict_frame(newdata: Any, design: Mapping[str, Any]) -> pd.DataFrame:
@@ -888,9 +963,7 @@ def predict_frame(newdata: Any, design: Mapping[str, Any]) -> pd.DataFrame:
         levels = levels_by_name.get(name)
 
         if levels is None:
-            if not (
-                pd.api.types.is_numeric_dtype(column) or pd.api.types.is_bool_dtype(column)
-            ):
+            if not (pd.api.types.is_numeric_dtype(column) or pd.api.types.is_bool_dtype(column)):
                 raise SaValueError(
                     f"`{name}` was a numeric predictor when the model was fitted, and "
                     f"`newdata` holds it as {column.dtype}. The coding of a column "
@@ -898,8 +971,16 @@ def predict_frame(newdata: Any, design: Mapping[str, Any]) -> pd.DataFrame:
                 )
             continue
 
-        as_text = column.astype(object).map(lambda entry: None if pd.isna(entry) else str(entry))
-        unseen = sorted({value for value in as_text if value is not None} - set(levels))
+        # The missing entries are marked off before the values are read rather
+        # than looked for among them: `map()` hands a `None` back as a `NaN` in an
+        # object column, and a float among the levels of a factor sorts against
+        # nothing.
+        missing = column.isna().to_numpy()
+        as_text = pd.Series(
+            [None if gone else str(entry) for entry, gone in zip(column, missing, strict=True)],
+            dtype=object,
+        )
+        unseen = sorted({value for value in as_text[~missing]} - set(levels))
         if unseen:
             raise SaValueError(
                 f"`newdata` holds level(s) of `{name}` the model was not fitted on, so "
@@ -949,8 +1030,7 @@ def outcome_levels(
     present = list(dict.fromkeys(value for value in as_text if value is not None))
     if len(present) < N_CLASSES:
         raise SaValueError(
-            "`outcome` takes a single value over the usable rows, so there is nothing "
-            "to classify."
+            "`outcome` takes a single value over the usable rows, so there is nothing to classify."
         )
 
     if not named:
@@ -1022,6 +1102,112 @@ def encode_outcome(y: pd.Series, outcome_lv: Sequence[str]) -> np.ndarray:
     """
     event = str(outcome_lv[1])
     return np.array([1 if str(entry) == event else 0 for entry in y], dtype=int)
+
+
+@dataclass
+class Outcome:
+    """The outcome, read as one kind of thing rather than the other.
+
+    Attributes:
+        classify: Whether it was read as a class.
+        y: The outcome as the engine takes it, floats for a regression and 0/1
+            for a classification.
+        levels: The two classes, reference first, or ``None``.
+        n_events: Rows in ``levels[1]``, or ``None``.
+    """
+
+    classify: bool
+    y: np.ndarray
+    levels: list[str] | None
+    n_events: int | None
+
+
+def resolve_outcome(
+    y: pd.Series,
+    outcome_lv: Any,
+    control_label: Any,
+    model: str,
+    non_finite: str,
+) -> Outcome:
+    """Decide whether the model is a regression or a classification.
+
+    The three models that fit either kind - the elastic net, the forest and the
+    machine - decide it the same way, so they decide it here. Naming the classes
+    with ``outcome_lv`` or ``control_label`` asks for a classification, and so
+    does an outcome that is not numeric; everything else is a regression.
+
+    A numeric column taking two values is the one case where both readings are
+    plausible. It is fitted as a regression, since that is what the column says
+    it is, and a note says so and says how to ask for the other reading. Guessing
+    from the value count would make a regression on a rounded outcome silently
+    become a classification.
+
+    Args:
+        y: The outcome of the usable rows.
+        outcome_lv: The two classes, reference first, or ``None``.
+        control_label: The reference class on its own, or ``None``.
+        model: What to call the model where a message names it.
+        non_finite: Why a non-finite outcome cannot be fitted, in this model's
+            own terms. Reached only on the regression path.
+    """
+    named = outcome_lv is not None or control_label is not None
+    numeric = pd.api.types.is_numeric_dtype(y) and not pd.api.types.is_bool_dtype(y)
+
+    if not named and numeric:
+        if int(y.nunique()) == N_CLASSES:
+            notify(
+                "`outcome` is numeric and takes two values, so it was fitted as a "
+                "regression. Pass `outcome_lv` or `control_label`, or a categorical "
+                "column, to model it as a classification."
+            )
+        values = y.to_numpy(dtype=float)
+        if not np.isfinite(values).all():
+            raise SaValueError(f"`outcome` holds non-finite value(s), {non_finite}")
+        return Outcome(classify=False, y=values, levels=None, n_events=None)
+
+    levels = outcome_levels(y, outcome_lv, control_label, model)
+    encoded = encode_outcome(y, levels)
+    return Outcome(classify=True, y=encoded, levels=levels, n_events=int(encoded.sum()))
+
+
+def model_design(input_: ModelInput, outcome: Outcome) -> dict[str, Any]:
+    """The ``design`` slot: what the model saw, in the order every model reports it.
+
+    Written once because it is the same answer every time. The classification
+    entries sit next to ``outcome_type`` rather than at the end, since which
+    class is being modelled is part of saying what the outcome was.
+    """
+    design: dict[str, Any] = {
+        "outcome": input_.outcome,
+        "outcome_type": "two classes" if outcome.classify else "continuous",
+    }
+    if outcome.classify:
+        design["outcome_lv"] = outcome.levels
+        design["n_events"] = outcome.n_events
+        design["event_rate"] = (outcome.n_events or 0) / input_.n_used
+    design["n_obs"] = input_.n_obs
+    design["n_used"] = input_.n_used
+    design["n_dropped"] = input_.n_dropped
+    design["predictors"] = input_.predictors
+    design["dropped_predictors"] = input_.dropped_predictors
+    design.update(design_lv(input_.predictor_lv))
+    return design
+
+
+def resample_params(cv: Any, control: ResampleControl, seed: Any) -> dict[str, Any]:
+    """The resampling entries of ``parameters``, as they were actually used.
+
+    Read off the resolved scheme rather than off the arguments, so that a
+    ``cv=False`` call records no fold count instead of the one it was passed and
+    ignored.
+    """
+    return {
+        "cv": bool(cv),
+        "cv_method": control.cv_method,
+        "n_fold": control.n_fold,
+        "n_repeat": control.n_repeat,
+        "seed": seed,
+    }
 
 
 # --------------------------------------------------------------------------- #
@@ -1133,21 +1319,38 @@ INTERCEPT = "(Intercept)"
 def _estimable(matrix: np.ndarray) -> np.ndarray:
     """Which columns of a design matrix the data can tell apart.
 
-    A pivoted QR is how ``lm()`` answers the same question: the columns the
-    decomposition reaches before the diagonal collapses are the ones that carry
-    information the earlier columns do not, and the rest are aliased. Taking them
-    in the order they were given rather than in pivot order is what keeps the
-    intercept and the first-named predictors as the terms that get estimated.
-    """
-    from scipy.linalg import qr
+    The columns are taken left to right and one is kept when it carries
+    something the kept ones do not: the part of it orthogonal to them, measured
+    against its own length so that the answer does not depend on the units the
+    column is in.
 
-    _, upper, pivot = qr(matrix, mode="economic", pivoting=True)
-    diagonal = np.abs(np.diag(upper))
-    if diagonal.size == 0 or diagonal[0] == 0:
-        return np.zeros(matrix.shape[1], dtype=bool)
-    rank = int((diagonal > diagonal[0] * RANK_TOL).sum())
-    keep = np.zeros(matrix.shape[1], dtype=bool)
-    keep[pivot[:rank]] = True
+    The order is the whole point, and it is why a fully pivoted decomposition
+    will not do here. Pivoting reaches for the longest column first, so of two
+    predictors that alias each other it keeps whichever happens to be on the
+    larger scale, and the term that comes back estimated then depends on the
+    units rather than on the model. ``lm()`` pivots only far enough to push the
+    deficient columns to the end and leaves the rest in the order they were
+    given, so the intercept and the first-named predictors are the terms that get
+    estimated. That is the behaviour reproduced here.
+    """
+    n_terms = matrix.shape[1]
+    keep = np.zeros(n_terms, dtype=bool)
+    basis: list[np.ndarray] = []
+    for position in range(n_terms):
+        column = np.asarray(matrix[:, position], dtype=float)
+        scale = float(np.linalg.norm(column))
+        if scale == 0:
+            continue
+        residual = column
+        # Twice, because one pass loses accuracy exactly where the answer is
+        # decided: a column that nearly lies in the span of the kept ones.
+        for _ in range(2):
+            for vector in basis:
+                residual = residual - float(vector @ residual) * vector
+        size = float(np.linalg.norm(residual))
+        if size > RANK_TOL * scale:
+            keep[position] = True
+            basis.append(residual / size)
     return keep
 
 
@@ -1232,30 +1435,67 @@ def least_squares(x: pd.DataFrame, y: np.ndarray, label: str) -> LinearFit:
 #: than converging, which :func:`quiet_engine` turns into one counted note.
 LOGIT_MAX_ITER = 1000
 
+#: How far the logistic solver is asked to go, four orders below the default.
+#:
+#: The default stops while the gradient of the log likelihood is still around
+#: ``1e-2``, which is close enough for a classifier and not close enough for a
+#: regression: the Wald standard errors, z statistics and p-values beside the
+#: coefficients are the curvature *at the maximum*, so a fit that stopped short
+#: of it reports uncertainty about a point that is not the estimate. At this
+#: tolerance the gradient reaches the floor the solver can achieve at all.
+LOGIT_TOL = 1e-8
+
+#: What "no penalty" is called for the engine's logistic regression.
+#:
+#: An infinite budget rather than ``penalty=None``, which the engine deprecated:
+#: the two fit the same model, and only this one does it without a warning per
+#: fold.
+LOGIT_NO_PENALTY = math.inf
+
+
+def logistic_estimator(fit_intercept: bool = True) -> Any:
+    """An unfitted logistic regression with no penalty on its coefficients.
+
+    Shared by the final fit and by the fold fits, so that the model scored by
+    the resampling is the model the coefficient table describes. The engine
+    penalizes by default, and a penalized fit is a different model: its
+    estimates are shrunk and its Wald standard errors are not the curvature of
+    the likelihood at the maximum.
+
+    Args:
+        fit_intercept: Whether the engine adds the intercept. ``False`` for the
+            fit that reports coefficients, since there the intercept is a column
+            of the design matrix and so gets a row in the table like any other
+            term; ``True`` for a fold, which is handed the matrix as the model's
+            own ``x_names`` order fixes it and has no such column.
+    """
+    from sklearn.linear_model import LogisticRegression
+
+    return LogisticRegression(
+        C=LOGIT_NO_PENALTY,
+        fit_intercept=fit_intercept,
+        solver="lbfgs",
+        max_iter=LOGIT_MAX_ITER,
+        tol=LOGIT_TOL,
+    )
+
 
 def logistic_fit(x: pd.DataFrame, y: np.ndarray, label: str) -> LinearFit:
     """Fit a binomial logistic regression, unpenalized.
 
-    ``penalty=None`` is what makes this a maximum likelihood fit rather than the
-    ridge the engine applies by default, which is the model
+    The absent penalty is what makes this a maximum likelihood fit rather than
+    the ridge the engine applies by default, which is the model
     :func:`~statassist.fit_logistic_regression` documents and the only one whose
     Wald standard errors mean what they say.
 
     ``fitted`` on the result is the linear predictor, not the probability, so
     that the caller decides which scale to read it on.
     """
-    from sklearn.linear_model import LogisticRegression
-
     terms = [INTERCEPT] + [str(name) for name in x.columns]
     matrix = np.column_stack([np.ones(len(x.index)), np.asarray(x, dtype=float)])
     keep = _estimable(matrix)
 
-    engine = LogisticRegression(
-        penalty=None,
-        fit_intercept=False,
-        solver="lbfgs",
-        max_iter=LOGIT_MAX_ITER,
-    )
+    engine = logistic_estimator(fit_intercept=False)
     with quiet_engine(label):
         engine.fit(matrix[:, keep], y)
     coefficients = np.asarray(engine.coef_, dtype=float).reshape(-1)
@@ -1314,6 +1554,209 @@ def logistic_scores(y: np.ndarray, probability: np.ndarray) -> dict[str, float]:
 
 
 # --------------------------------------------------------------------------- #
+# Scoring a fit on the rows it was fitted to
+# --------------------------------------------------------------------------- #
+
+
+def numeric_scores(observed: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
+    """How close a predicted outcome came, for a model that reports no inference.
+
+    ``r_squared`` is the share of the variance of the outcome the prediction
+    accounts for, which is the in-sample reading and not the held-out
+    ``Rsquared`` of :func:`regression_scores`.
+    """
+    error = observed - predicted
+    total = float(np.sum((observed - observed.mean()) ** 2))
+    residual = float(np.sum(error**2))
+    return {
+        "r_squared": 1 - residual / total if total > 0 else math.nan,
+        "rmse": float(np.sqrt(np.mean(error**2))),
+        "mae": float(np.mean(np.abs(error))),
+    }
+
+
+def class_scores(observed: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
+    """How well a predicted class did, with 1 as the event.
+
+    ``sensitivity`` is the share of the events the model found and
+    ``specificity`` the share of the non-events it left alone, so both are
+    statements about ``outcome_lv[1]`` being the class of interest. Either is
+    missing rather than 0 when its denominator is empty: a model asked about no
+    events did not fail to find them.
+    """
+    from sklearn.metrics import cohen_kappa_score
+
+    event = observed == 1
+    accuracy = float(np.mean(observed == predicted))
+    if np.unique(observed).size < N_CLASSES or np.unique(predicted).size < N_CLASSES:
+        kappa = math.nan
+    else:
+        kappa = float(cohen_kappa_score(observed, predicted))
+    return {
+        "accuracy": accuracy,
+        "error": 1 - accuracy,
+        "kappa": kappa,
+        "sensitivity": float(np.mean(predicted[event] == 1)) if event.any() else math.nan,
+        "specificity": float(np.mean(predicted[~event] == 0)) if (~event).any() else math.nan,
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Shared by the models that report importance rather than coefficients
+# --------------------------------------------------------------------------- #
+
+
+def importance_table(
+    terms: Sequence[str],
+    estimate: np.ndarray,
+    impurity: np.ndarray | None = None,
+) -> pd.DataFrame:
+    """The coefficient table of a model that has no coefficients.
+
+    A forest and a machine answer with how much each term was worth to them
+    rather than with a coefficient, so the table is sorted by that: the term at
+    the top is the one the model leaned on hardest. Which is the opposite
+    convention from an unpenalized fit, whose rows are in the order of ``terms``
+    because the intercept has to come first there.
+    """
+    table = pd.DataFrame(
+        {
+            "terms": [str(name) for name in terms],
+            "estimate": np.asarray(estimate, dtype=float),
+        }
+    )
+    if impurity is not None:
+        table["impurity"] = np.asarray(impurity, dtype=float)
+    return table.sort_values("estimate", ascending=False, kind="stable").reset_index(drop=True)
+
+
+def rollup(
+    values: Mapping[str, float], source: Mapping[str, str], predictors: Sequence[str]
+) -> np.ndarray:
+    """Add up what was reported per model term into one number per predictor.
+
+    A three-level factor reaches the engine as two dummy columns, so the engine
+    reports two numbers about one predictor. Their sum is what the predictor was
+    worth, which is the quantity R reports directly: its engine splits on the
+    factor itself and never divides it into columns.
+
+    Adding rather than averaging is the reading that survives the difference. The
+    total decrease in error attributable to a predictor does not depend on how
+    many columns it was spread over, while a mean would report a factor as less
+    important the more levels it has.
+    """
+    totals = dict.fromkeys((str(name) for name in predictors), 0.0)
+    for term, value in values.items():
+        name = source[term]
+        totals[name] = totals[name] + float(value)
+    return np.array([totals[str(name)] for name in predictors], dtype=float)
+
+
+def permutation_scores(
+    estimator: Any,
+    x: pd.DataFrame,
+    y: np.ndarray,
+    classify: bool,
+    n_permute: int,
+    seed: int | None,
+) -> np.ndarray:
+    """What each column was worth, measured by taking it away.
+
+    A column is shuffled and the model is scored again; what the score lost is
+    what the column was carrying. The engine's own routine does the shuffling,
+    and the scorer decides the sign: accuracy and negative error both go down
+    when something is taken away, so a larger number is a more important column
+    either way.
+
+    Args:
+        estimator: The fitted model, or the pipeline that ends in it.
+        x: The columns it was fitted on.
+        y: The outcome it was fitted to.
+        classify: Whether the outcome is a class.
+        n_permute: Shuffles per column. The average over them is reported, since
+            one shuffle of one column is a draw rather than a measurement.
+        seed: Seed for the shuffling.
+    """
+    from sklearn.inspection import permutation_importance
+
+    scored = permutation_importance(
+        estimator,
+        np.asarray(x, dtype=float),
+        y,
+        scoring="accuracy" if classify else "neg_root_mean_squared_error",
+        n_repeats=n_permute,
+        random_state=seed,
+    )
+    return np.asarray(scored.importances_mean, dtype=float)
+
+
+@dataclass
+class ScaledFit:
+    """A penalized fit, with its coefficients back on the scale they came in on.
+
+    Attributes:
+        estimator: The pipeline that scales and then fits, so that predicting
+            from the raw design matrix goes through the same scaling.
+        intercept: The intercept on the original scale.
+        coefficient: One coefficient per column of the design matrix, on the
+            original scale.
+    """
+
+    estimator: Any
+    intercept: float
+    coefficient: np.ndarray
+
+
+def scaled_estimator(engine: Any) -> Any:
+    """The engine with the standardizing in front of it.
+
+    Kept as one object so that the columns are centred and scaled by the training
+    rows of whatever it is fitted to. Inside a fold that means the fold's own
+    training rows, which is the point: scaling by the whole data set first would
+    let each fold's held-out rows contribute to the numbers used to fit it.
+    """
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    return make_pipeline(StandardScaler(), engine)
+
+
+def scaled_fit(engine: Any, x: pd.DataFrame, y: np.ndarray, label: str) -> ScaledFit:
+    """Fit a penalized model on standardized columns, and undo the standardizing.
+
+    Both halves matter and they are separate decisions.
+
+    Standardizing first is what ``glmnet`` does and it is not a preference: a
+    penalty divides one budget between the terms, so the same predictor measured
+    in millimetres rather than metres would be charged a thousandth as much for
+    the same effect and would survive the penalty for no reason but its units.
+
+    Undoing it afterwards is so the table can be read. A coefficient per standard
+    deviation is a different quantity from the one
+    :func:`~statassist.fit_linear_regression` reports, and the point of a shared
+    coefficient contract is that two models' tables answer the same question.
+    """
+    pipeline = scaled_estimator(engine)
+    with quiet_engine(label):
+        pipeline.fit(np.asarray(x, dtype=float), y)
+
+    scaler, fitted = pipeline[0], pipeline[-1]
+    scaled = np.asarray(fitted.coef_, dtype=float).reshape(-1)
+    coefficient = scaled / np.asarray(scaler.scale_, dtype=float)
+    intercept = float(np.ravel(fitted.intercept_)[0]) - float(
+        coefficient @ np.asarray(scaler.mean_, dtype=float)
+    )
+    return ScaledFit(estimator=pipeline, intercept=intercept, coefficient=coefficient)
+
+
+def check_penalty(penalty: Any) -> str:
+    """Resolve the penalty name, R's ``match.arg()``."""
+    if penalty not in PENALTIES:
+        raise SaValueError("`penalty` must be one of: " + ", ".join(PENALTIES) + ".")
+    return str(penalty)
+
+
+# --------------------------------------------------------------------------- #
 # Predicting
 # --------------------------------------------------------------------------- #
 
@@ -1361,9 +1804,7 @@ def predict_model(model: Any, newdata: Any = None, type: str = "raw") -> Any:  #
         raise SaValueError("`type` must be one of: " + ", ".join(PREDICT_TYPES) + ".")
     fit = model.fit
     if not isinstance(fit, EngineFit):
-        raise SaInternalError(
-            "internal error: the model carries no engine object to predict with."
-        )
+        raise SaInternalError("internal error: the model carries no engine object to predict with.")
 
     if newdata is None:
         # No rows to code: the rows the coefficients were estimated from are the
@@ -1395,8 +1836,7 @@ def _engine_predict(fit: EngineFit, matrix: pd.DataFrame, type: str) -> Any:  # 
     if not fit.classify:
         if type == "prob":
             raise SaValueError(
-                '`type = "prob"` names one column per class, which only a '
-                "classification has."
+                '`type = "prob"` names one column per class, which only a classification has.'
             )
         return np.asarray(fit.estimator.predict(values), dtype=float)
 
@@ -1406,11 +1846,13 @@ def _engine_predict(fit: EngineFit, matrix: pd.DataFrame, type: str) -> Any:  # 
         return np.array([levels[code] for code in codes], dtype=object)
 
     probability = np.asarray(fit.estimator.predict_proba(values), dtype=float)
-    event = list(fit.estimator.classes_).index(1)
+    # The engine's own column order is read by name rather than assumed, so that
+    # `outcome_lv[1]` is the class reported whichever column it landed in.
+    at = list(fit.estimator.classes_)
     if type == "response":
-        return probability[:, event]
+        return probability[:, at.index(1)]
     return pd.DataFrame(
-        {level: probability[:, list(fit.estimator.classes_).index(code)] for code, level in enumerate(levels)}
+        {level: probability[:, at.index(code)] for code, level in enumerate(levels)}
     )
 
 
@@ -1429,12 +1871,13 @@ def _scatter(value: Any, usable: np.ndarray) -> Any:
         )
         full.loc[usable] = value.to_numpy()
         return full
-    if value.dtype == object:
-        full = np.full(len(usable), None, dtype=object)
-    else:
-        full = np.full(len(usable), math.nan)
-    full[usable] = value
-    return full
+    scattered = (
+        np.full(len(usable), None, dtype=object)
+        if value.dtype == object
+        else np.full(len(usable), math.nan)
+    )
+    scattered[usable] = value
+    return scattered
 
 
 # --------------------------------------------------------------------------- #
