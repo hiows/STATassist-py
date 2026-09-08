@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "statassist"
-version = "0.1.0.dev0"
+version = "1.0.0"
 description = "Python port of R STATassist - standardised statistical tables and workflows"
 readme = "README.md"
 license = { text = "MIT" }
