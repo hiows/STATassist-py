@@ -1448,7 +1448,7 @@ tsne
 
 ![t-SNE of the eight features](https://raw.githubusercontent.com/hiows/STATassist-py/master/docs/figures/README-tsne.png)
 
-`perform_umap()` is the one that standardises nothing by default, because `metric` is its own argument and `"cosine"` or `"correlation"` compares the shape of a row rather than its size, which already answers what standardising would. Both neighbourhood sizes are read from the engine's limits when they are `None`, and both are read from the number of **points** rather than the number of samples — with eight features that is small enough to be worth a message:
+`perform_umap()` is the one call in this README that a default install cannot run: its engine is an optional extra, so it needs `pip install "statassist-py[umap]"` first. It is also the one that standardises nothing by default, because `metric` is its own argument and `"cosine"` or `"correlation"` compares the shape of a row rather than its size, which already answers what standardising would. Both neighbourhood sizes are read from the engine's limits when they are `None`, and both are read from the number of **points** rather than the number of samples — with eight features that is small enough to be worth a message:
 
 ```python
 umap_res = sa.perform_umap(
@@ -1458,7 +1458,7 @@ umap_res = sa.perform_umap(
 
 ![UMAP of the eight features](https://raw.githubusercontent.com/hiows/STATassist-py/master/docs/figures/README-umap.png)
 
-Three blocks again, and `x_6` off on its own — the same reading as PCA and t-SNE gave, from coordinates that share no scale with either. This is the one function in the package that needs an optional extra. Without it the call raises and names the install line rather than failing obscurely, so this is also the one figure in this README that a default install cannot reproduce.
+Three blocks again, and `x_6` off on its own — the same reading as PCA and t-SNE gave, from coordinates that share no scale with either. Without the extra the call raises and names the install line rather than failing obscurely, and `perform_pca()` and `perform_tsne()` answer about the same points without it.
 
 The coordinates are `scores` in all three and the engine object is `fit`. `variance` and `loadings` are the two slots only PCA carries, so `"variance" in res` is how a consumer tells a rotation from an embedding.
 
