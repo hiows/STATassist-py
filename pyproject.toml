@@ -54,8 +54,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/hiows/STATassist"
-Repository = "https://github.com/hiows/STATassist"
+Homepage = "https://github.com/hiows/STATassist-py"
+Repository = "https://github.com/hiows/STATassist-py"
+"R package" = "https://github.com/hiows/STATassist"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/statassist"]
