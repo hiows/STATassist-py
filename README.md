@@ -660,13 +660,13 @@ sa.estimate_categorical_significance(cat, by="table", test="chisq_test")
   verdict  : cramers_v = 0.21  (significant)
 ```
 
-`draw_mosaic_plot()` shades each tile by the residual under the same null, and draws the expected conditional proportion as a dashed line inside each strip so the eye reads distance from the null rather than distance from the neighbouring strip:
+`draw_mosaic_plot()` shades each tile by the residual under the same null, and draws the expected conditional proportion as a dashed line inside each strip so the eye reads distance from the null rather than distance from the neighbouring strip. The default shading is the Pearson residual, which squares and sums to the test statistic. The cell reading above used `std_residual` instead — the same axis referred to a standard normal — so the figure asks for that one:
 
 ```python
-sa.draw_mosaic_plot(cat)
+sa.draw_mosaic_plot(cat, residual="standardized")
 ```
 
-![Mosaic plot shaded by Pearson residuals under independence](https://raw.githubusercontent.com/hiows/STATassist-py/master/docs/figures/README-mosaic.png)
+![Mosaic plot shaded by standardized residuals under independence](https://raw.githubusercontent.com/hiows/STATassist-py/master/docs/figures/README-mosaic.png)
 
 Repeated binary conditions swap the null and the tests: `paired=True` reads McNemar for two conditions and Cochran's Q for more, and `design["null"]` says so.
 

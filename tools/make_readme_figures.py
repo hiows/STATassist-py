@@ -373,7 +373,7 @@ def categorical_groups(fig_dir: Path, notes: Notes) -> None:
     notes.show("s09 sig_table", sig_table)
 
     figure(7.0, 6.0)
-    sa.draw_mosaic_plot(cat)
+    sa.draw_mosaic_plot(cat, residual="standardized")
     save(fig_dir, "mosaic")
 
 

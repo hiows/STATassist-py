@@ -194,7 +194,7 @@ class TestPartOne:
         by_cell = sa.estimate_categorical_significance(cat, by="cell")
         assert {"row_level", "col_level", "lift", "is_signif"} <= set(by_cell.significance.columns)
         sa.estimate_categorical_significance(cat, by="table", test="chisq_test")
-        sa.draw_mosaic_plot(cat)
+        sa.draw_mosaic_plot(cat, residual="standardized")
 
     def test_association_returns_one_square_matrix_set_per_method(self):
         cor_mat = sa.make_block_cor(
