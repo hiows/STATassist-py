@@ -3,7 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "statassist"
+# Distribution name on PyPI. The import remains `statassist` (src/statassist);
+# `statassist` itself is already taken on PyPI by an unrelated project.
+name = "statassist-py"
 version = "1.0.0"
 description = "Python port of R STATassist - standardised statistical tables and workflows"
 readme = "README.md"

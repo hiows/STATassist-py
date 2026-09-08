@@ -49,7 +49,7 @@ UMAP_METRICS = ("euclidean", "manhattan", "cosine", "correlation")
 #: What to say when the engine is not installed.
 _MISSING_ENGINE = (
     "`perform_umap()` needs the `umap-learn` package, which is an optional extra "
-    'of this one: install it with `pip install "statassist[umap]"`. '
+    'of this one: install it with `pip install "statassist-py[umap]"`. '
     "`perform_pca()` and `perform_tsne()` need nothing beyond the core "
     "dependencies and answer about the same points."
 )

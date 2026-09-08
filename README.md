@@ -39,19 +39,29 @@ And the same wide input feeds the plots that look at the data instead of at a re
 
 ## Installation
 
-The package is not on PyPI yet, so install it from GitHub:
-
 ```bash
-pip install git+https://github.com/hiows/STATassist-py.git
+pip install statassist-py
 ```
+
+The import name is `statassist`, not `statassist_py`:
+
+```python
+import statassist as sa
+```
+
+`pip install statassist` installs a different library. This project is `statassist-py`.
 
 `perform_umap()` is the one function whose engine is not a hard dependency. It pulls in `numba`, it is the only public function that needs it, and the other two reductions answer about the same points — so a caller who wants UMAP asks for it and everyone else does not pay for the compiler:
 
 ```bash
-pip install "statassist[umap] @ git+https://github.com/hiows/STATassist-py.git"
+pip install "statassist-py[umap]"
 ```
 
-Python 3.11 or newer. The core dependencies are `numpy`, `pandas`, `scipy`, `scikit-learn` and `matplotlib`.
+Python 3.11 or newer. The core dependencies are `numpy`, `pandas`, `scipy`, `scikit-learn` and `matplotlib`. The latest tip can still be installed from GitHub:
+
+```bash
+pip install git+https://github.com/hiows/STATassist-py.git
+```
 
 ## Conventions used throughout
 
