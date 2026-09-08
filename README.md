@@ -719,6 +719,10 @@ sa.draw_grouped_barplot(
 )
 ```
 
+![Grouped barplot of the first ten genes, with standard errors](https://raw.githubusercontent.com/hiows/STATassist-py/master/docs/figures/README-barplot.png)
+
+Read against the boxplot of the same ten genes in §4, this is the trade the two functions make: a bar says where a group's centre is and how well that centre is pinned down, and nothing about the shape behind it. `gene_2`, `gene_5` and `gene_7` are the flat pairs here and the overlapping boxes there, while the outliers and the long tail §4 draws on `gene_7` leave no mark on its bar at all.
+
 `center_by_control()` sits beside them: it divides, or on the log2 scale subtracts, the control centre out of every feature, so each value reads as its distance from the control. It takes the arguments the comparisons take, in the same order, so the two steps are one set of arguments.
 
 ### 14. Feature-pair association
@@ -1442,7 +1446,9 @@ umap_res = sa.perform_umap(
 )
 ```
 
-This is the one function in the package that needs an optional extra. Without it the call raises and names the install line rather than failing obscurely, which is why the figure above stops at t-SNE.
+![UMAP of the eight features](https://raw.githubusercontent.com/hiows/STATassist-py/master/docs/figures/README-umap.png)
+
+Three blocks again, and `x_6` off on its own — the same reading as PCA and t-SNE gave, from coordinates that share no scale with either. This is the one function in the package that needs an optional extra. Without it the call raises and names the install line rather than failing obscurely, so this is also the one figure in this README that a default install cannot reproduce.
 
 The coordinates are `scores` in all three and the engine object is `fit`. `variance` and `loadings` are the two slots only PCA carries, so `"variance" in res` is how a consumer tells a rotation from an embedding.
 

@@ -126,12 +126,17 @@ class TestRows:
 
 
 class TestAxis:
-    def test_a_supplied_xlim_is_used_as_given(self):
+    def test_a_supplied_xlim_is_the_range_the_axis_covers(self):
+        """R's `xlim` too: an interval is clamped to it, and the panel reaches
+        past it by `xaxs = "r"` so an interval running to the end of the range is
+        drawn to its end rather than into the spine."""
         _, res = _two_group()
         draw_forest_plot(res, xlim=(-1.0, 1.0))
         import matplotlib.pyplot as plt
 
-        assert plt.gcf().axes[0].get_xlim() == (-1.0, 1.0)
+        from statassist.plot._theme import expand_limits
+
+        assert plt.gcf().axes[0].get_xlim() == pytest.approx(expand_limits(-1.0, 1.0))
 
     def test_a_derived_range_covers_every_interval_that_was_drawn(self):
         _, res = _two_group()

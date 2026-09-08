@@ -205,9 +205,14 @@ class TestWhatWasDrawn:
         assert len({ax.get_ylim() for ax in _panels()}) > 1
 
     def test_a_supplied_range_is_shared_by_every_panel(self):
+        """The range every panel has to cover, with the air `boxplot()` leaves
+        around it, so an outlier on the end of it is a point rather than half of
+        one."""
+        from statassist.plot._theme import expand_limits
+
         _call_crossed(panel_by="feature", ylim=(0.0, 25.0))
         for ax in _panels():
-            assert ax.get_ylim() == (0.0, 25.0)
+            assert ax.get_ylim() == pytest.approx(expand_limits(0.0, 25.0))
 
     def test_the_clusters_are_annotated_with_what_they_hold(self):
         _call()

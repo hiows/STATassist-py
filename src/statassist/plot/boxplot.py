@@ -28,7 +28,7 @@ from ..core.validate import (
     check_scalar_num,
     validate_wide_input,
 )
-from ._theme import figure, font, group_colors, linestyle, theme, tick_rotation
+from ._theme import expand_limits, figure, font, group_colors, linestyle, theme, tick_rotation
 
 __all__ = ["BOX_PANEL_AXES", "draw_grouped_boxplot"]
 
@@ -709,9 +709,11 @@ def _box_panel(
             },
         )
 
-    ax.set_xlim(float(positions[0]) - 1, float(positions[-1]) + 1)
+    # R's `xaxs = "r"` reaches past both ranges, which is what keeps an outlier
+    # sitting on the end of the value range from being drawn half under a spine.
+    ax.set_xlim(expand_limits(float(positions[0]) - 1, float(positions[-1]) + 1))
     if limits is not None:
-        ax.set_ylim(limits)
+        ax.set_ylim(expand_limits(*limits))
     ax.set_xticks([float(np.mean(cluster)) for cluster in at])
     tilt = tick_rotation(
         panel.cluster_labels,

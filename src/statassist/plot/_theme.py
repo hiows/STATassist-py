@@ -19,12 +19,15 @@ from matplotlib.figure import Figure
 from ..core.errors import SaValueError
 
 __all__ = [
+    "AXIS_EXPANSION",
     "LINE_HEIGHT",
     "Theme",
     "estimate_column",
+    "expand_limits",
     "figure",
     "font",
     "group_colors",
+    "label_anchor",
     "line_inches",
     "linestyle",
     "set_margin",
@@ -86,6 +89,17 @@ CHAR_WIDTH = 0.6
 
 #: How far a tick label is turned when it does not fit lying flat.
 TILT_DEGREES = 30.0
+
+#: How far past the range it was given R's default axis style reaches.
+#:
+#: ``?par`` defines ``xaxs = "r"`` as extending the range by 4 percent at each
+#: end before an axis is fitted inside it, and the ``draw_*`` originals leave
+#: that default in place. The exceptions turn it off with ``"i"``: the heatmap
+#: and the mosaic on both axes, since a tile is laid out to fill the panel, and
+#: the height axis of the bar plot, which ``barplot()`` sets for itself.
+#: matplotlib's ``set_xlim`` is R's ``"i"``, so without the 4 percent a point
+#: sits on the spine that R left room in front of, drawn as half of itself.
+AXIS_EXPANSION = 0.04
 
 
 class Theme(NamedTuple):
@@ -171,6 +185,67 @@ def tick_rotation(labels: Sequence[str], span_inches: float, size: float) -> flo
         return 0.0
     widest = max(len(str(label)) for label in labels) * size / 72.0 * CHAR_WIDTH
     return 0.0 if widest <= span_inches else TILT_DEGREES
+
+
+def expand_limits(lo: float, hi: float) -> tuple[float, float]:
+    """A range widened by :data:`AXIS_EXPANSION` at each end, R's ``xaxs = "r"``.
+
+    The widening is what keeps a point standing on the end of the range from
+    being drawn half under a spine. A range the caller stated is widened too,
+    since R widens ``xlim`` the same way: ``xlim`` names the range the axis has
+    to cover, not the coordinate the panel stops at. A magnitude axis is no
+    exception. Zero is where it starts, so zero is where its points collect, and
+    that is the end most in need of the room.
+
+    Args:
+        lo: Low end of the range to fit.
+        hi: High end of the same.
+
+    Returns:
+        The widened range.
+    """
+    pad = (float(hi) - float(lo)) * AXIS_EXPANSION
+    return float(lo) - pad, float(hi) + pad
+
+
+def label_anchor(
+    x: float, limits: Sequence[float], label: str, size: float, span_inches: float
+) -> tuple[float, str]:
+    """Where to anchor a point's label so that the whole of it stays on the axis.
+
+    R's :func:`text` inherits ``xpd = FALSE`` and cuts a label off at the edge of
+    the plot region. Half a feature name is not an answer to the overflow, so a
+    label that would cross a spine is anchored against that spine and reads
+    inwards from it instead of being centred on its point.
+
+    :data:`CHAR_WIDTH` is an average rather than the width of the glyphs actually
+    handed over, so the estimate can fall a few percent short of the real label.
+    A label is therefore anchored once it comes within one character of a spine
+    rather than only once it has crossed it: the anchored position is exact, so
+    spending a character of slack is what keeps the error from ever reading as
+    the last letter of a name being shaved off.
+
+    Args:
+        x: Where the point is, in data coordinates.
+        limits: The axis range the label has to stay inside.
+        label: The text about to be drawn.
+        size: Font size it is drawn at, in points.
+        span_inches: How wide that axis is on the page.
+
+    Returns:
+        The coordinate to draw at, and the alignment to draw it with.
+    """
+    low, high = float(limits[0]), float(limits[1])
+    span = high - low
+    if span <= 0 or span_inches <= 0:
+        return x, "center"
+    per_char = size / 72.0 * CHAR_WIDTH / span_inches * span
+    half = len(label) * per_char / 2.0
+    if x + half + per_char > high:
+        return high, "right"
+    if x - half - per_char < low:
+        return low, "left"
+    return x, "center"
 
 
 def group_colors(col: Any, n_levels: int) -> list[Any]:

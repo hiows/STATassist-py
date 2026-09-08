@@ -129,11 +129,16 @@ class TestTheRocCurve:
             drawn_area = float(np.trapezoid(line.get_ydata(), line.get_xdata()))
             assert drawn_area == pytest.approx(area, abs=1e-8)
 
-    def test_the_axes_are_the_unit_square(self, scored_clf):
+    def test_the_axes_cover_the_unit_square(self, scored_clf):
+        """The square is what a rate can take, and the panel is that square under
+        R's `xaxs = "r"`. The air is what draws the corner of a curve that runs
+        along an edge, which is the shape a good classifier gives."""
+        from statassist.plot._theme import expand_limits
+
         draw_roc_curve(scored_clf)
         ax = _figure().axes[0]
-        assert ax.get_xlim() == (0.0, 1.0)
-        assert ax.get_ylim() == (0.0, 1.0)
+        assert ax.get_xlim() == pytest.approx(expand_limits(0.0, 1.0))
+        assert ax.get_ylim() == pytest.approx(expand_limits(0.0, 1.0))
 
     def test_the_title_names_the_class_being_ranked_against_the_other(self, scored_clf):
         draw_roc_curve(scored_clf)
@@ -225,9 +230,14 @@ class TestThePredictionPlot:
         assert high >= float(held["predicted"].max())
 
     def test_the_range_can_be_fixed(self, scored_reg):
+        """`lim` names the range both axes have to cover, as R's does; the panel
+        reaches past it by `xaxs = "r"` so a prediction on the end of the range
+        is drawn whole."""
+        from statassist.plot._theme import expand_limits
+
         draw_prediction_plot(scored_reg, type="overlay", lim=(-3, 3))
-        assert _figure().axes[0].get_xlim() == (-3.0, 3.0)
-        assert _figure().axes[0].get_ylim() == (-3.0, 3.0)
+        assert _figure().axes[0].get_xlim() == pytest.approx(expand_limits(-3.0, 3.0))
+        assert _figure().axes[0].get_ylim() == pytest.approx(expand_limits(-3.0, 3.0))
 
     def test_the_points_drawn_are_the_predictions_of_that_model(self, scored_reg):
         draw_prediction_plot(scored_reg, type="panel")

@@ -24,7 +24,7 @@ from ._performance import (
     performance_metrics,
     performance_models,
 )
-from ._theme import figure, font, linestyle, set_margin, theme
+from ._theme import expand_limits, figure, font, linestyle, set_margin, theme
 
 __all__ = ["draw_roc_curve"]
 
@@ -162,8 +162,14 @@ def draw_roc_curve(
         ax.spines[spine].set_color(palette.fg)
     ax.tick_params(colors=palette.fg, labelsize=font(cex_axis))
 
+    # R fits the unit square inside `xaxs = "r"` and draws the diagonal with
+    # `abline`, so the panel reaches a little past the square and the chance line
+    # crosses the whole of it. The room is what lets a curve running along an
+    # edge, which is what a good classifier gives, be drawn rather than hidden
+    # under the spine.
+    panel = expand_limits(*_UNIT)
     if chance:
-        ax.plot(_UNIT, _UNIT, color=palette.guide, linewidth=2, linestyle=":")
+        ax.plot(panel, panel, color=palette.guide, linewidth=2, linestyle=":")
 
     curves: pd.DataFrame = result["curves"]
     for position, name in enumerate(drawn_models):
@@ -185,8 +191,8 @@ def draw_roc_curve(
             label=label,
         )
 
-    ax.set_xlim(_UNIT)
-    ax.set_ylim(_UNIT)
+    ax.set_xlim(panel)
+    ax.set_ylim(panel)
     ax.set_xlabel(
         "1 - specificity" if xlab is None else xlab,
         fontsize=font(cex_lab),

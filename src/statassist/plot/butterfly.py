@@ -21,7 +21,7 @@ from ..core.validate import (
     validate_wide_input,
 )
 from ._hist import BREAK_RULES, density, histogram, nclass, pretty
-from ._theme import figure, font, set_margin
+from ._theme import expand_limits, figure, font, set_margin
 
 __all__ = ["BUTTERFLY_SCALES", "BUTTERFLY_TYPES", "draw_butterfly_hist"]
 
@@ -301,8 +301,12 @@ def draw_butterfly_hist(
             )
 
     ax.axvline(0.0, color="black", linewidth=1)
-    ax.set_xlim(x_limits)
-    ax.set_ylim(y_limits)
+    # The limits are the range the axes have to cover; R fits them inside
+    # `xaxs = "r"`, which leaves room in front of a bar that reaches the end of
+    # one. The ticks are still the ones inside the stated range, since the room
+    # is air rather than a longer axis.
+    ax.set_xlim(expand_limits(*x_limits))
+    ax.set_ylim(expand_limits(*y_limits))
     ax.set_xticks(ticks[(ticks >= x_limits[0]) & (ticks <= x_limits[1])])
     shown = np.abs(ax.get_xticks())
     ax.set_xticklabels([f"{tick:.2f}" if scale == "proportion" else f"{tick:g}" for tick in shown])

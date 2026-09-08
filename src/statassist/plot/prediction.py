@@ -35,7 +35,7 @@ from ._performance import (
     performance_metrics,
     performance_models,
 )
-from ._theme import Theme, figure, font, set_margin, theme
+from ._theme import Theme, expand_limits, figure, font, set_margin, theme
 
 __all__ = ["PREDICTION_VIEWS", "draw_prediction_plot"]
 
@@ -296,12 +296,17 @@ def _dress(
     for spine in ("bottom", "left"):
         ax.spines[spine].set_color(palette.fg)
     ax.tick_params(colors=palette.fg, labelsize=font(cex_axis))
-    ax.set_xlim(span)
-    ax.set_ylim(span)
+    # R fits `span` inside `xaxs = "r"`, which reaches past it at each end, and
+    # draws the identity with `abline`, so the diagonal still runs corner to
+    # corner. The room is what keeps a prediction at the end of the range from
+    # being drawn half under a spine.
+    panel = expand_limits(*span)
+    ax.set_xlim(panel)
+    ax.set_ylim(panel)
     ax.set_xlabel(label_x, fontsize=font(cex_lab), color=palette.fg)
     ax.set_ylabel(label_y, fontsize=font(cex_lab), color=palette.fg)
     # The identity first, so the points and the fitted line sit on top of it.
-    ax.plot(span, span, color=palette.guide, linewidth=2, linestyle=":")
+    ax.plot(panel, panel, color=palette.guide, linewidth=2, linestyle=":")
 
 
 def _draw_model(

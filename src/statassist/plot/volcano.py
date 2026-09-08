@@ -24,7 +24,7 @@ from ..core.validate import (
     check_pvalues,
     check_scalar_num,
 )
-from ._theme import figure, font, set_margin
+from ._theme import expand_limits, figure, font, label_anchor, set_margin
 
 __all__ = ["draw_volcano_plot"]
 
@@ -191,8 +191,15 @@ def _volcano_one(
     cex_main: float,
     margins: tuple[float, float, float, float],
     ax: Any = None,
+    show_ylab: bool = True,
 ) -> None:
-    """Draw one volcano panel on ``ax``, or on a fresh figure when ``ax`` is None."""
+    """Draw one volcano panel on ``ax``, or on a fresh figure when ``ax`` is None.
+
+    ``show_ylab`` is what a caller drawing panels side by side turns off on all
+    but the leftmost. Every panel reads the same significance off the same shared
+    range, so the name of that axis is one fact about the figure rather than one
+    per panel; repeating it only writes it into the neighbour's panel.
+    """
     p_col = "adj_pvalue" if use_adjusted else "pvalue"
     effect_col = verdict_effect_col(table)
     magnitude = effect_col == "log2_effect"
@@ -265,11 +272,17 @@ def _volcano_one(
         for edge in (-cut_fc, cut_fc):
             ax.axvline(edge, color=_GUIDE_COLOR, linewidth=2, linestyle=":")
 
-    ax.set_xlim(x_limits)
-    ax.set_ylim(y_limits)
+    # `x_limits` is R's `xlim`: the range the axis has to cover, and the one the
+    # offsets above are measured against. What the panel is cut off at is that
+    # range under `xaxs = "r"`, which reaches past it far enough that a point on
+    # either end is drawn whole instead of half under a spine.
+    drawn_x = expand_limits(*x_limits)
+    ax.set_xlim(drawn_x)
+    ax.set_ylim(expand_limits(*y_limits))
     ax.set_xlabel(_xlab(table) if xlab is None else xlab, fontsize=font(cex_lab))
-    y_lab = r"$-\log_{10}$ adjusted $P$" if use_adjusted else r"$-\log_{10}\,P$"
-    ax.set_ylabel(y_lab, fontsize=font(cex_lab))
+    if show_ylab:
+        y_lab = r"$-\log_{10}$ adjusted $P$" if use_adjusted else r"$-\log_{10}\,P$"
+        ax.set_ylabel(y_lab, fontsize=font(cex_lab))
     ax.tick_params(labelsize=font(cex_axis))
     if main is not None:
         ax.set_title(main, fontsize=font(cex_main))
@@ -283,15 +296,19 @@ def _volcano_one(
             picked_down = _strongest(is_down, pvalue, mag, anno_top, up=False)
         if picked.size == 0 and picked_down.size == 0:
             notify("No feature clears both cutoffs, so nothing was labelled.")
+        size = font(cex_anno)
+        span_inches = ax.get_position().width * ax.figure.get_size_inches()[0]
         for index, colour in ((picked, _UP_LABEL), (picked_down, _DOWN_LABEL)):
             for i in index:
+                at, align = label_anchor(plot_x[i], drawn_x, features[i], size, span_inches)
                 ax.text(
-                    plot_x[i],
+                    at,
                     plot_y[i] + label_offset,
                     features[i],
                     color=colour,
-                    fontsize=font(cex_anno),
-                    ha="center",
+                    fontsize=size,
+                    ha=align,
+                    clip_on=True,
                 )
 
 
@@ -425,6 +442,7 @@ def _volcano_panels(
             cex_main,
             margins,
             ax=axes[row][column],
+            show_ylab=column == 0,
         )
     for index in range(n_panel, n_row * n_col):
         row, column = divmod(index, n_col)
@@ -498,10 +516,10 @@ def _limits(
 
     y_top = max(float(y_finite.max()), float(-np.log10(cut_p)), 1.0)
     x_max = max(float(np.abs(x_finite).max()), cut_fc)
-    if magnitude:
-        derived_x = (0.0, x_max * 1.05)
-    else:
-        derived_x = (-x_max * 1.05, x_max * 1.05)
+    # R's `xlim`, which the caller may state instead. The room an axis needs in
+    # front of a point on the end of this range is added where the range is
+    # drawn, not here, so the offsets measured off it stay R's.
+    derived_x = (0.0, x_max * 1.05) if magnitude else (-x_max * 1.05, x_max * 1.05)
     return (
         xlim if xlim is not None else derived_x,
         ylim if ylim is not None else (0.0, y_top * 1.1),

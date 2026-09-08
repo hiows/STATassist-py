@@ -17,7 +17,7 @@ import pandas as pd
 from ..core.errors import SaValueError, notify
 from ..core.result import pick_test
 from ..core.validate import check_feat_names, check_flag, check_lim, check_scalar_num
-from ._theme import estimate_column, figure, font, line_inches, theme
+from ._theme import estimate_column, expand_limits, figure, font, line_inches, theme
 
 __all__ = ["FOREST_VIEWS", "draw_forest_plot"]
 
@@ -334,8 +334,11 @@ def draw_forest_plot(
         ax.hlines(at, lower, upper, colors=row_colours, linewidth=2)
         ax.scatter(estimate, at, marker="D", s=60, c=row_colours, zorder=3)
 
-    ax.set_xlim(limits)
-    ax.set_ylim(0.5, n_rows + 0.5)
+    # `limits` is what an interval is clamped to above; what the panel is cut off
+    # at is that range under R's `xaxs = "r"`, so an interval reaching the end of
+    # it is drawn to its end rather than into the spine.
+    ax.set_xlim(expand_limits(*limits))
+    ax.set_ylim(expand_limits(0.5, n_rows + 0.5))
     ax.set_yticks(at)
     ax.set_yticklabels(labels, fontsize=font(cex_labels), color=colours.fg)
     ax.tick_params(axis="y", length=0, colors=colours.fg)

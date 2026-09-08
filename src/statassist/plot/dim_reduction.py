@@ -28,7 +28,16 @@ from ._scatter import (
     scatter_groups,
     scatter_space,
 )
-from ._theme import CHAR_WIDTH, figure, font, set_margin, theme
+from ._theme import (
+    AXIS_EXPANSION,
+    CHAR_WIDTH,
+    expand_limits,
+    figure,
+    font,
+    label_anchor,
+    set_margin,
+    theme,
+)
 
 __all__ = ["SCATTER_VIEWS", "draw_dim_reduction_plot"]
 
@@ -263,24 +272,38 @@ def draw_dim_reduction_plot(
             c=[point_col[index] for index in at],
             s=area,
         )
-    if anno_points:
-        for index, label in enumerate(labels):
-            ax.annotate(
-                label,
-                (space.x[index], space.y[index]),
-                textcoords="offset points",
-                xytext=(0, 6),
-                ha="center",
-                fontsize=font(cex_anno),
-                color=palette.fg,
-            )
-
+    # R leaves `xaxs = "r"` in place here too, which keeps a point off the spine
+    # whether the range was derived or stated. `margins` reaches only the axes
+    # still being autoscaled, so a stated range is widened where it is set.
     if x_limits is not None:
-        ax.set_xlim(x_limits)
+        ax.set_xlim(expand_limits(*x_limits))
     if y_limits is not None:
-        ax.set_ylim(y_limits)
+        ax.set_ylim(expand_limits(*y_limits))
+    ax.margins(AXIS_EXPANSION)
     if asp is not None:
         ax.set_aspect(asp)
+        # The box, not the limits, is what an aspect ratio moves, and a label
+        # placed below has to be measured against the box it will be drawn in.
+        ax.apply_aspect()
+
+    # After the axes are settled, so that a label at the edge is measured against
+    # the range it actually has to fit inside.
+    if anno_points:
+        size = font(cex_anno)
+        limits = ax.get_xlim()
+        span_inches = ax.get_position().width * fig.get_size_inches()[0]
+        for index, label in enumerate(labels):
+            anchor, align = label_anchor(space.x[index], limits, label, size, span_inches)
+            ax.annotate(
+                label,
+                (anchor, space.y[index]),
+                textcoords="offset points",
+                xytext=(0, 6),
+                ha=align,
+                fontsize=size,
+                color=palette.fg,
+                clip_on=True,
+            )
     ax.set_xlabel(space.xlab if xlab is None else xlab, fontsize=font(cex_lab), color=palette.fg)
     ax.set_ylabel(space.ylab if ylab is None else ylab, fontsize=font(cex_lab), color=palette.fg)
     ax.set_title(

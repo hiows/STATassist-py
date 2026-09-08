@@ -117,14 +117,19 @@ class TestAxis:
         drawn = np.concatenate([c.get_offsets() for c in ax.collections])
         assert np.all(drawn[:, 0] <= ax.get_xlim()[1])
 
-    def test_a_supplied_range_is_used_as_given(self):
+    def test_a_supplied_range_is_covered_with_the_air_r_leaves_around_it(self):
+        """`xlim` names the range the axis has to cover, which is what R's `xlim`
+        names: the panel is that range under `xaxs = "r"`, so a point standing on
+        either end is drawn whole rather than half under a spine."""
         import matplotlib.pyplot as plt
+
+        from statassist.plot._theme import expand_limits
 
         _, _, sig = _verdict()
         draw_volcano_plot(sig, xlim=(-1.0, 1.0), ylim=(0.0, 2.0))
         ax = plt.gcf().axes[0]
-        assert ax.get_xlim() == (-1.0, 1.0)
-        assert ax.get_ylim() == (0.0, 2.0)
+        assert ax.get_xlim() == pytest.approx(expand_limits(-1.0, 1.0))
+        assert ax.get_ylim() == pytest.approx(expand_limits(0.0, 2.0))
 
     def test_a_derived_range_is_symmetric_and_reaches_the_guides(self):
         import matplotlib.pyplot as plt
@@ -146,6 +151,89 @@ class TestAxis:
         label = plt.gcf().axes[0].get_xlabel()
         assert "most extreme level" in label
         assert sim.args["group_lv"][0] in label
+
+
+class TestLabelPlacement:
+    """Where a label goes when the point it names sits against a spine.
+
+    R's ``text()`` inherits ``xpd = FALSE`` and cuts a label off at the edge of
+    the plot region; matplotlib's default is to write it into the margin instead.
+    Neither leaves a feature name readable, so a label that cannot be centred
+    over its point is anchored against the spine and reads inwards from there.
+    These read the extents back through the renderer rather than trusting the
+    anchor, since the width a label is judged by is an estimate.
+    """
+
+    @staticmethod
+    def _spans(ax):
+        """Every drawn label's horizontal extent, in data coordinates."""
+        fig = ax.figure
+        fig.canvas.draw()
+        renderer = fig.canvas.get_renderer()
+        back = ax.transData.inverted()
+        spans = []
+        for text in ax.texts:
+            if not text.get_text():
+                continue
+            box = text.get_window_extent(renderer)
+            spans.append(
+                (
+                    float(back.transform((box.x0, box.y0))[0]),
+                    float(back.transform((box.x1, box.y0))[0]),
+                )
+            )
+        return spans
+
+    @staticmethod
+    def _long_names():
+        """The same verdict with names too long to centre at the edge."""
+        _, _, sig = _verdict()
+        table = sig["significance"].copy()
+        table.attrs = dict(sig["significance"].attrs)
+        table["features"] = [f"a_very_long_feature_name_{name}" for name in table["features"]]
+        return table
+
+    def test_no_label_reaches_past_either_spine(self):
+        import matplotlib.pyplot as plt
+
+        _, _, sig = _verdict()
+        draw_volcano_plot(sig)
+        ax = plt.gcf().axes[0]
+        low, high = ax.get_xlim()
+        spans = self._spans(ax)
+        assert spans
+        assert all(left >= low and right <= high for left, right in spans)
+
+    def test_a_name_too_long_to_centre_stays_on_the_axis(self):
+        import matplotlib.pyplot as plt
+
+        draw_volcano_plot(self._long_names())
+        ax = plt.gcf().axes[0]
+        low, high = ax.get_xlim()
+        spans = self._spans(ax)
+        assert spans
+        assert all(left >= low and right <= high for left, right in spans)
+
+    def test_a_label_that_cannot_be_centred_sits_on_the_spine_it_ran_into(self):
+        import matplotlib.pyplot as plt
+
+        draw_volcano_plot(self._long_names())
+        ax = plt.gcf().axes[0]
+        low, high = ax.get_xlim()
+        anchored = [text for text in ax.texts if text.get_text() and text.get_ha() != "center"]
+        assert anchored
+        for text in anchored:
+            edge = low if text.get_ha() == "left" else high
+            assert text.get_position()[0] == pytest.approx(edge)
+
+    def test_a_label_is_clipped_to_the_panel_the_way_R_clips_it(self):
+        import matplotlib.pyplot as plt
+
+        _, _, sig = _verdict()
+        draw_volcano_plot(sig)
+        drawn = [text for text in plt.gcf().axes[0].texts if text.get_text()]
+        assert drawn
+        assert all(text.get_clip_on() for text in drawn)
 
 
 class TestArgumentChecks:
@@ -218,15 +306,21 @@ class TestTermPanels:
         plt.close("all")
 
     def test_term_panels_use_a_magnitude_axis_from_zero(self):
+        """A magnitude has no sign, so zero is the end of the range rather than
+        its middle. Below that zero lies only the air `xaxs = "r"` leaves, which
+        is what draws the crowd of points standing on zero whole."""
         import matplotlib.pyplot as plt
+
+        from statassist.plot._theme import AXIS_EXPANSION
 
         draw_volcano_plot(self._term_sig())
         for ax in plt.gcf().axes:
             if not (ax.has_data() or ax.get_title()):
                 continue
             low, high = ax.get_xlim()
-            assert low == pytest.approx(0.0)
             assert high > 0
+            air = (high - low) * AXIS_EXPANSION / (1 + 2 * AXIS_EXPANSION)
+            assert low + air == pytest.approx(0.0)
         plt.close("all")
 
     def test_term_panels_draw_one_vertical_guide(self):

@@ -16,7 +16,7 @@ from scipy import stats
 from ..core.errors import SaValueError, notify
 from ..core.result import SaFactorial
 from ..core.validate import check_count, check_feat_names, check_flag, check_lim, check_scalar_num
-from ._theme import figure, font, group_colors, theme
+from ._theme import expand_limits, figure, font, group_colors, theme
 
 __all__ = ["INTERACTION_VIEWS", "draw_interaction_plot"]
 
@@ -614,8 +614,11 @@ def _inter_panel(
     """Draw one panel of traces."""
     n_x = len(x_lv)
     ax.set_facecolor(look.bg)
-    ax.set_xlim(1 - 0.25, n_x + 0.25)
-    ax.set_ylim(ylim)
+    # R reaches this panel through a plain `plot()`, so both axes keep
+    # `xaxs = "r"`: a mean on the end of the range, and the error bar around it,
+    # are drawn whole rather than half under a spine.
+    ax.set_xlim(expand_limits(1 - 0.25, n_x + 0.25))
+    ax.set_ylim(expand_limits(*ylim))
     ax.set_xticks(list(range(1, n_x + 1)), list(x_lv))
     ax.tick_params(colors=look.fg, labelsize=font(cex_axis))
     ax.set_xlabel(xlab, color=look.fg, fontsize=font(cex_lab))

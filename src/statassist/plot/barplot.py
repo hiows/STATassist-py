@@ -27,7 +27,7 @@ from ..core.validate import (
     validate_wide_input,
 )
 from ..summarize.descriptive import levels_present, summarize_descriptive_stats
-from ._theme import figure, font, group_colors, linestyle, theme, tick_rotation
+from ._theme import expand_limits, figure, font, group_colors, linestyle, theme, tick_rotation
 
 __all__ = ["BAR_ERRORBARS", "BAR_HEIGHTS", "draw_grouped_barplot"]
 
@@ -505,7 +505,12 @@ def _bar_draw(
     if span[0] < 0:
         ax.axhline(0, color=look.fg, linewidth=lwd)
 
-    ax.set_xlim(float(at[0]) - 1, float(at[-1]) + 1)
+    # The bar axis is widened the way R's `xaxs = "r"` widens it, so an outer bar
+    # is not drawn against the spine. The height axis is not: `barplot()` sets
+    # `yaxs = "i"` for it, because a bar is a shape standing on the floor of the
+    # panel rather than a point that could be caught half under it, and lifting
+    # the floor away from zero would only make the heights harder to read off.
+    ax.set_xlim(expand_limits(float(at[0]) - 1, float(at[-1]) + 1))
     ax.set_ylim(span)
     ax.set_xticks(
         [float(np.mean(at[index * n_lv : (index + 1) * n_lv])) for index in range(len(bars.feats))]

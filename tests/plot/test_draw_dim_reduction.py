@@ -347,15 +347,32 @@ class TestAxes:
         assert (ax.get_xlabel(), ax.get_ylabel(), ax.get_title()) == ("left", "up", "mine")
 
     def test_the_ranges_can_be_set_and_asp_makes_the_units_comparable(self, rotated):
+        """`xlim` is the range the axis has to cover, as it is in R; the panel is
+        that range under `xaxs = "r"`, so a point on the end of it is drawn whole
+        rather than half under a spine."""
+        from statassist.plot._theme import expand_limits
+
         draw_dim_reduction_plot(rotated, xlim=(-9, 9), ylim=(-4, 4), asp=1)
         ax = _axes()
-        assert ax.get_xlim() == (-9, 9)
+        assert ax.get_xlim() == pytest.approx(expand_limits(-9, 9))
         assert ax.get_aspect() == 1
 
     def test_anno_points_writes_one_label_per_point(self, rotated):
         draw_dim_reduction_plot(rotated, anno_points=True)
         annotations = [text.get_text() for text in _axes().texts]
         assert annotations == rotated["points"]
+
+    def test_a_point_label_is_kept_on_the_panel_rather_than_written_past_it(self, rotated):
+        # R clips a label at the plot region; a label that cannot be centred over
+        # its point is anchored against the spine so the name survives either way.
+        draw_dim_reduction_plot(rotated, anno_points=True)
+        ax = _axes()
+        low, high = ax.get_xlim()
+        drawn = [text for text in ax.texts if text.get_text()]
+        assert drawn
+        assert all(text.get_clip_on() for text in drawn)
+        for text in drawn:
+            assert low <= text.get_position()[0] <= high
 
     def test_a_size_that_is_not_a_positive_number_is_refused(self, rotated):
         with pytest.raises(SaValueError, match="cex"):
